@@ -136,7 +136,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_multi = ttk.Button(bar, text="Multicasos...", command=self.pick_multi)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
         self.btn_webui = ttk.Button(bar, text="Instalar Open WebUI", command=self.install_webui)
-        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_webui):
+        self.btn_find = ttk.Button(bar, text="Localizar Open WebUI", command=self.find_webui)
+        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_find, self.btn_webui):
             btn.pack(side="left", padx=4)
         self.destrutivas = tk.BooleanVar(value=True)
         ttk.Checkbutton(bar, text="Permitir remover marcadores", variable=self.destrutivas).pack(side="left", padx=12)
@@ -264,9 +265,24 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             return
         self.say(f"Abrindo caso: {app}")
 
+    def find_webui(self) -> None:
+        """Aponta o open-webui(.exe) que o usuário já tem (guardado só como configuração do programa)."""
+        found = wl.find_open_webui()
+        if found:
+            self.say(f"Open WebUI encontrado: {found}")
+        chosen = self.filedialog.askopenfilename(
+            title="Escolha o open-webui.exe (pasta Scripts do seu Python); cancele para manter o atual"
+        )
+        if not chosen:
+            return
+        cfg = wl.load_config()
+        cfg["openwebui_exe"] = chosen
+        wl.save_config(cfg)
+        self.say(f"Open WebUI definido: {chosen}")
+
     def install_webui(self) -> None:
-        if wl.find_open_webui():
-            self.messagebox.showinfo(APP_TITLE, "O Open WebUI já está instalado. Use 'Chat com IA'.")
+        if wl.find_open_webui_command():
+            self.messagebox.showinfo(APP_TITLE, "Já achei um Open WebUI neste computador. Use 'Chat com IA'.")
             return
         if not self.messagebox.askyesno(
             APP_TITLE, "Instalar o Open WebUI agora?\n\nPrecisa de Python 3.11 e internet; baixa centenas de MB e leva vários minutos."

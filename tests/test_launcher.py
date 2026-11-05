@@ -85,7 +85,24 @@ def test_find_open_webui_prefers_managed_venv(tmp_path, monkeypatch):
     assert launcher.find_open_webui() == str(exe)
     monkeypatch.setattr(launcher, "OPENWEBUI_EXE", tmp_path / "nao-existe")
     monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
+    monkeypatch.setattr(launcher, "load_config", lambda: {})
+    monkeypatch.setattr(launcher, "_known_webui_exes", lambda: [])
     assert launcher.find_open_webui() is None
+
+
+def test_find_open_webui_uses_chosen_and_known_locations(tmp_path, monkeypatch):
+    chosen = tmp_path / "meu-open-webui.exe"
+    chosen.write_text("x")
+    monkeypatch.setattr(launcher, "OPENWEBUI_EXE", tmp_path / "nao-existe")
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
+    monkeypatch.setattr(launcher, "load_config", lambda: {"openwebui_exe": str(chosen)})
+    assert launcher.find_open_webui() == str(chosen)
+    known = tmp_path / "Python311" / "open-webui.exe"
+    known.parent.mkdir()
+    known.write_text("x")
+    monkeypatch.setattr(launcher, "load_config", lambda: {})
+    monkeypatch.setattr(launcher, "_known_webui_exes", lambda: [tmp_path / "x" / "open-webui.exe", known])
+    assert launcher.find_open_webui() == str(known)
 
 
 def test_free_port_skips_busy_port():
