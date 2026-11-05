@@ -20,7 +20,7 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         server.main()
         return 0
     if args.modo == "webapi":
+        for stream in (sys.stdout, sys.stderr):  # no .exe a saída em pipe fica em buffer e a linha "INICIADOS" nunca chega
+            try:
+                stream.reconfigure(line_buffering=True, write_through=True)
+            except Exception:  # noqa: BLE001
+                pass
         sys.argv = ["web-api-launcher.py", "--root", args.root or ".", "--sources", args.sources or "multicases.json"]
         sys.argv += rest
         runpy.run_path(str(HERE / "web-api-launcher.py"), run_name="__main__")
