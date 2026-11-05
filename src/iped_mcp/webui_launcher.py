@@ -188,6 +188,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
 
         token = "" if args.no_token else secrets.token_urlsafe(24)
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
+        if args.sem_destrutivas:
+            env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)
+        else:  # a análise precisa limpar marcadores; cada chamada fica na auditoria
+            env["IPED_MCP_ALLOW_DESTRUCTIVE"] = "1"
         env.pop("IPED_URL", None)  # IPED_URL e IPED_ENDPOINTS juntas são erro no MCP
         if token:
             env["IPED_MCP_TOKEN"] = token

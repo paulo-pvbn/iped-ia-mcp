@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     ap.add_argument("--no-webui", action="store_true")
     ap.add_argument("--no-token", action="store_true")
+    ap.add_argument("--sem-destrutivas", action="store_true", help="desliga remover/renomear/apagar marcadores")
     args, rest = ap.parse_known_args(argv)
 
     if args.version:
