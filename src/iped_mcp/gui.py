@@ -92,8 +92,19 @@ def launch_detached(app: Path) -> None:  # pragma: no cover - depende do SO
         subprocess.Popen([str(app)], cwd=str(app.parent), start_new_session=True)  # noqa: S603
 
 
-def chat_command(iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False) -> list[str]:
+def ollama_models(url: str = "http://127.0.0.1:11434") -> list[str]:
+    """Modelos baixados no Ollama (lista vazia se ele não estiver aberto)."""
+    try:
+        data = wl._api("GET", url.rstrip("/") + "/api/tags", None, None, 4)
+        return sorted(m["name"] for m in (data or {}).get("models", []))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def chat_command(iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "") -> list[str]:
     cmd = [*wl.self_command("iniciar"), "--root", iped_root, "--cases-dir", cases_dir]
+    if modelo:
+        cmd += ["--modelo", modelo]
     if sem_destrutivas:
         cmd.append("--sem-destrutivas")
     return cmd
@@ -115,6 +126,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.geometry("1000x620")
         # Cada usuário informa os seus caminhos: nada vem preenchido.
         self.vars = {k: tk.StringVar(value="") for k in ("iped", "origem", "destino")}
+        self.modelo = tk.StringVar(value=wl.load_config().get("modelo", ""))  # preferência do programa, não é caminho pessoal
         self.multi_dir = ""
         self.index_proc: subprocess.Popen | None = None
         self.chat_proc: subprocess.Popen | None = None
@@ -128,8 +140,13 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             ttk.Button(frame, text="...", width=3, command=lambda k=key: self.pick(k)).grid(row=row, column=2)
         frame.columnconfigure(1, weight=1)
 
+        ttk.Label(frame, text="Modelo (Ollama)").grid(row=3, column=0, sticky="w", pady=2)
+        self.cmb_modelo = ttk.Combobox(frame, textvariable=self.modelo, values=[])
+        self.cmb_modelo.grid(row=3, column=1, sticky="ew", padx=6)
+        threading.Thread(target=self.load_models, daemon=True).start()
+
         bar = ttk.Frame(frame)
-        bar.grid(row=3, column=0, columnspan=3, sticky="w", pady=10)
+        bar.grid(row=4, column=0, columnspan=3, sticky="w", pady=10)
         self.btn_index = ttk.Button(bar, text="INDEXAR", command=self.index)
         self.btn_cancel = ttk.Button(bar, text="Cancelar", command=self.cancel, state="disabled")
         self.btn_open = ttk.Button(bar, text="Abrir caso", command=self.open_case)
@@ -140,10 +157,10 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.bar = bar
 
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
-        self.progress.grid(row=4, column=0, columnspan=3, sticky="ew")
+        self.progress.grid(row=5, column=0, columnspan=3, sticky="ew")
         self.log = scrolledtext.ScrolledText(frame, height=24, state="disabled", wrap="word")
-        self.log.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
-        frame.rowconfigure(5, weight=1)
+        self.log.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
+        frame.rowconfigure(6, weight=1)
 
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(150, self.drain)
@@ -171,6 +188,17 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         except queue.Empty:
             pass
         self.root.after(150, self.drain)
+
+    def load_models(self) -> None:
+        models = ollama_models()
+
+        def apply() -> None:
+            self.cmb_modelo.configure(values=models)
+            if not self.modelo.get() and models:
+                self.modelo.set(next((m for m in models if "ipediar" in m.lower()), models[0]))
+            self.say(f"Ollama: {len(models)} modelo(s) encontrado(s)." if models else "Ollama não respondeu: abra o Ollama antes do Chat com IA.")
+
+        self.root.after(0, apply)
 
     def save(self) -> None:
         """Caminhos pessoais não são gravados em disco (cada usuário informa os seus)."""
@@ -336,7 +364,10 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         def start() -> None:
             env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=True), env=env)
+            cfg = wl.load_config()
+            cfg["modelo"] = self.modelo.get().strip()
+            wl.save_config(cfg)
+            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=True, modelo=cfg["modelo"]), env=env)
             self.btn_chat.configure(text="Parar chat", state="normal")
             self.say("Subindo Web APIs + MCP + Open WebUI… as instruções de conexão aparecem aqui em instantes.")
 

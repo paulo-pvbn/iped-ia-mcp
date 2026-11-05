@@ -175,7 +175,7 @@ Este fork acrescenta, **sem alterar as tools originais**:
   instruções do modelo no Open WebUI.
 - **Launcher / executável** `iped-ia-mcp.exe`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o
   Open WebUI. Sem argumentos abre a janela, onde cada usuário informa as suas pastas (nada vem preenchido). O botão
-  **Instalar Open WebUI** cria um ambiente próprio em `%APPDATA%\iped-ia-mcp\openwebui` (precisa de Python 3.11 e
+  **Chat com IA** procura o Open WebUI e, se faltar, oferece instalar um ambiente próprio em `%APPDATA%\iped-ia-mcp\openwebui` (precisa de Python 3.11 e
   internet); depois, **Chat com IA** sobe tudo e o Open WebUI usa o Ollama em `http://127.0.0.1:11434`.
 
 **Janela (duplo clique no `.exe`, sem argumentos):** campos *Pasta do IPED*, *ORIGEM* (imagem ou pasta de evidências) e
@@ -207,3 +207,10 @@ Open WebUI e o IPED reais (os testes usam clientes MCP em memória).
 
 É recomendável executar o MCP **no mesmo ambiente do harness** (opencode),
 preferencialmente WSL2 — foi testado com o opencode no mesmo ambiente WSL2.
+
+### Open WebUI configurado automaticamente
+
+O **Chat com IA** sobe o Open WebUI **sem tela de login, só em `127.0.0.1`** (dados em `%APPDATA%\iped-ia-mcp\openwebui\data-local`),
+cadastra sozinho o servidor MCP do IPED (URL e token da execução), cria o modelo **Analista IPED** (sobre o modelo do
+Ollama escolhido na janela, com o prompt do analista e as ferramentas do IPED já ligadas) e abre o navegador. Validado
+contra o Open WebUI 0.13; versões muito diferentes podem exigir cadastro manual (o programa avisa).
