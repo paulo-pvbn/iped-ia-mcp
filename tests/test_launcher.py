@@ -67,3 +67,12 @@ def test_cases_found_up_to_three_levels_and_ids_without_accents(tmp_path):
     ids = [s["id"] for s in launcher.sources_from_cases_dir(tmp_path)]
     assert ids == ["outro", "Caso_Acao"] or ids == ["Caso_Acao", "outro"]
     assert all(i.isascii() for i in ids)
+
+
+def test_host_port_and_say_writes_log(tmp_path, monkeypatch, capsys):
+    assert launcher._host_port("http://127.0.0.1:1235/") == ("127.0.0.1", 1235)
+    monkeypatch.setattr(launcher, "LOG_PATH", tmp_path / "log" / "ultimo-log.txt")
+    monkeypatch.setattr(launcher, "_LOG_FILE", None)
+    launcher.say("olá, ação")
+    assert "olá, ação" in capsys.readouterr().out
+    assert "olá, ação" in (tmp_path / "log" / "ultimo-log.txt").read_text(encoding="utf-8")
