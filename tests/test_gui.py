@@ -33,3 +33,15 @@ def test_case_app_and_chat_command(tmp_path):
     assert gui.case_app(tmp_path) == tmp_path / "IPED-SearchApp.exe"
     cmd = gui.chat_command("C:/iped", "D:/casos", sem_destrutivas=True)
     assert "--cases-dir" in cmd and cmd[-1] == "--sem-destrutivas" and "iniciar" in cmd
+
+
+def test_find_case_app_subfolders_and_parent(tmp_path):
+    assert gui.find_case_app(tmp_path / "nao-existe") is None
+    assert gui.find_case_app(tmp_path) is None
+    caso = tmp_path / "Caso 1"
+    (caso / "iped").mkdir(parents=True)
+    exe = caso / "IPED-SearchApp.exe"
+    exe.write_text("x")
+    assert gui.find_case_app(caso) == exe  # pasta do caso
+    assert gui.find_case_app(tmp_path) == exe  # pasta acima
+    assert gui.find_case_app(caso / "iped") == exe  # subpasta iped -> pasta-mãe
