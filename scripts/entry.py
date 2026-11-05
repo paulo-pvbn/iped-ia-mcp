@@ -63,6 +63,9 @@ def main(argv: list[str] | None = None) -> int:
         from iped_mcp.security import SecurityConfig, verify_chain
 
         target = Path(rest[0]) if rest else SecurityConfig.from_env().audit_path
+        if not target.is_file():
+            print(f"Arquivo de auditoria não encontrado: {target}", file=sys.stderr)
+            return 2
         ok, n, why = verify_chain(target)
         print(f"{'ÍNTEGRO' if ok else 'ADULTERADO'}: {n} registros verificados" + (f" ({why})" if why else ""))
         return 0 if ok else 1
