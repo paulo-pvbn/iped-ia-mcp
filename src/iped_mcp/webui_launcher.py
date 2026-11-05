@@ -561,6 +561,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
                 wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
+                # Busca em documentos (RAG) do Open WebUI usaria um modelo local baixado do HuggingFace; aponta para o Ollama
+                # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
+                wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
+                wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 log_file = open(OPENWEBUI_HOME / "open-webui.log", "ab")  # noqa: SIM115  (saída ruidosa vai para arquivo)
                 say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")

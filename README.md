@@ -168,7 +168,7 @@ Este fork acrescenta, **sem alterar as tools originais**:
 
 - **Token** (`IPED_MCP_TOKEN`) e escuta só em `127.0.0.1` por padrão; fora dele o servidor não sobe sem token.
 - **Tools destrutivas desligadas por padrão**: `bookmarks_remove`, `bookmarks_rename`, `bookmarks_delete` e
-  `bookmarks_remove_from_file`. Criar e acrescentar continuam. `IPED_MCP_ALLOW_DESTRUCTIVE=1` liga de volta. **O launcher/executável já liga essas tools** (a análise precisa remover o que não serve; tudo fica na auditoria e só afeta marcadores, não as evidências); use `--sem-destrutivas` para desligar.
+  `bookmarks_remove_from_file`. Criar e acrescentar continuam. `IPED_MCP_ALLOW_DESTRUCTIVE=1` liga de volta. **A janela do programa mantém essas tools desligadas** (remover marcadores se faz no próprio IPED). O launcher em linha de comando (`--modo iniciar`) as liga por padrão (tudo fica na auditoria e só afeta marcadores, não as evidências); use `--sem-destrutivas` para desligar.
 - **Auditoria em cadeia de hash** (`audit/iped-mcp-audit.jsonl`): uma linha por chamada (tool, argumentos,
   ok/erro, duração), sem o conteúdo devolvido. Confira com `python -m iped_mcp.security`.
 - **Prompt do analista** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): cole nas

@@ -138,9 +138,6 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat):
             btn.pack(side="left", padx=4)
         self.bar = bar
-        self.destrutivas = tk.BooleanVar(value=True)
-        self.chk_destrutivas = ttk.Checkbutton(bar, text="Permitir remover marcadores", variable=self.destrutivas)
-        self.chk_destrutivas.pack(side="left", padx=12)
 
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
         self.progress.grid(row=4, column=0, columnspan=3, sticky="ew")
@@ -339,7 +336,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         def start() -> None:
             env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=not self.destrutivas.get()), env=env)
+            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=True), env=env)
             self.btn_chat.configure(text="Parar chat", state="normal")
             self.say("Subindo Web APIs + MCP + Open WebUI… as instruções de conexão aparecem aqui em instantes.")
 
