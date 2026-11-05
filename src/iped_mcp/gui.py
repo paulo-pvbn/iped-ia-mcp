@@ -135,8 +135,6 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_open = ttk.Button(bar, text="Abrir caso", command=self.open_case)
         self.btn_multi = ttk.Button(bar, text="Multicasos...", command=self.pick_multi)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
-        self.btn_webui = ttk.Button(bar, text="Instalar Open WebUI", command=self.install_webui)
-        self.btn_find = ttk.Button(bar, text="Localizar Open WebUI", command=self.find_webui)
         for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat):
             btn.pack(side="left", padx=4)
         self.bar = bar
@@ -154,7 +152,6 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(150, self.drain)
         self.say("Pronto. Escolha a pasta do IPED, a ORIGEM e o DESTINO e clique em INDEXAR; "
                  "ou aponte o DESTINO para um caso já indexado e clique em Chat com IA.")  # fmt: skip
-        self.check_webui()
 
     @staticmethod
     def _version() -> str:
@@ -268,24 +265,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             return
         self.say(f"Abrindo caso: {app}")
 
-    def check_webui(self) -> None:
-        """Procura Open WebUI/Python em segundo plano; os botões Localizar/Instalar só aparecem se faltar."""
-
-        def work() -> None:
-            found = wl.running_open_webui(3000, 8080) or wl.find_open_webui_command()
-            if found:
-                self.say("Open WebUI encontrado neste computador: o Chat com IA o abre sozinho.")
-            else:
-                self.root.after(0, self.show_webui_buttons)
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def show_webui_buttons(self) -> None:
-        self.say("Não achei o Open WebUI neste computador: use 'Localizar Open WebUI' (se já tiver) ou 'Instalar Open WebUI'.")
-        for btn in (self.btn_find, self.btn_webui):
-            btn.pack(side="left", padx=4, before=self.chk_destrutivas)
-
-    def find_webui(self) -> None:
+    def find_webui(self) -> bool:
         """Aponta o open-webui(.exe) que o usuário já tem (guardado só como configuração do programa)."""
         found = wl.find_open_webui()
         if found:
@@ -294,30 +274,49 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             title="Escolha o open-webui.exe (pasta Scripts do seu Python); cancele para manter o atual"
         )
         if not chosen:
-            return
+            return bool(found)
         cfg = wl.load_config()
         cfg["openwebui_exe"] = chosen
         wl.save_config(cfg)
         self.say(f"Open WebUI definido: {chosen}")
+        return True
 
-    def install_webui(self) -> None:
-        if wl.find_open_webui_command():
-            self.messagebox.showinfo(APP_TITLE, "Já achei um Open WebUI neste computador. Use 'Chat com IA'.")
-            return
-        if not self.messagebox.askyesno(
-            APP_TITLE, "Instalar o Open WebUI agora?\n\nPrecisa de Python 3.11 e internet; baixa centenas de MB e leva vários minutos."
-        ):
-            return
-        self.btn_webui.configure(state="disabled")
+    def install_webui(self, then=None) -> None:
+        """Instala o Open WebUI (processo filho) e, se der certo, chama `then`."""
+        self.btn_chat.configure(state="disabled")
         self.progress.start(12)
+        self.say("Instalando o Open WebUI: pode levar vários minutos, a janela continua aberta…")
         proc = self.run_proc(wl.self_command("instalar-webui"), env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"))
 
         def wait() -> None:
             code = proc.wait()
-            self.root.after(0, lambda: (self.progress.stop(), self.btn_webui.configure(state="normal")))
             self.say("Instalação concluída." if code == 0 else f"Instalação falhou (código {code}).")
 
+            def done() -> None:
+                self.progress.stop()
+                self.btn_chat.configure(state="normal")
+                if code == 0 and then:
+                    then()
+
+            self.root.after(0, done)
+
         threading.Thread(target=wait, daemon=True).start()
+
+    def ask_webui(self, start) -> None:
+        """Open WebUI ausente: pergunta se instala, se o usuário aponta o dele, ou cancela."""
+        answer = self.messagebox.askyesnocancel(
+            APP_TITLE,
+            "Não encontrei o Open WebUI neste computador.\n\n"
+            "SIM: instalar agora (baixa o Python 3.11 se preciso; centenas de MB; vários minutos).\n"
+            "NÃO: eu já tenho, quero indicar o open-webui.exe.\n"
+            "CANCELAR: não fazer nada.",
+        )
+        if answer is None:
+            return
+        if answer:
+            self.install_webui(then=start)
+        elif self.find_webui():
+            start()
 
     def toggle_chat(self) -> None:
         if self.chat_proc is not None:
@@ -337,10 +336,29 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 return
             self.multi_dir = cases
         self.save()
-        env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
-        self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=not self.destrutivas.get()), env=env)
-        self.btn_chat.configure(text="Parar chat")
-        self.say("Subindo Web APIs + MCP + Open WebUI… as instruções de conexão aparecem aqui em instantes.")
+
+        def start() -> None:
+            env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=not self.destrutivas.get()), env=env)
+            self.btn_chat.configure(text="Parar chat", state="normal")
+            self.say("Subindo Web APIs + MCP + Open WebUI… as instruções de conexão aparecem aqui em instantes.")
+
+        self.btn_chat.configure(state="disabled")
+        self.say("Procurando o Open WebUI neste computador…")
+
+        def check() -> None:
+            found = wl.running_open_webui(3000, 8080) or wl.find_open_webui_command()
+
+            def after() -> None:
+                self.btn_chat.configure(state="normal")
+                if found:
+                    start()
+                else:
+                    self.ask_webui(start)
+
+            self.root.after(0, after)
+
+        threading.Thread(target=check, daemon=True).start()
 
     def close(self) -> None:
         for proc in (self.index_proc, self.chat_proc):
