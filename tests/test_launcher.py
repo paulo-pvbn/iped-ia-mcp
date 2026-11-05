@@ -113,3 +113,36 @@ def test_free_port_skips_busy_port():
         srv.listen()
         busy = srv.getsockname()[1]
         assert launcher.free_port(busy) != busy
+
+
+def test_find_open_webui_command_next_to_python(tmp_path, monkeypatch):
+    scripts = tmp_path / "Python311" / "Scripts"
+    scripts.mkdir(parents=True)
+    exe = scripts / "open-webui.exe"
+    exe.write_text("x")
+    py = tmp_path / "Python311" / "python.exe"
+    py.write_text("x")
+    monkeypatch.setattr(launcher, "find_open_webui", lambda: None)
+    monkeypatch.setattr(launcher, "python_candidates", lambda: [py])
+    assert launcher.find_open_webui_command() == [str(exe)]  # Scripts/ ao lado do python.exe
+
+
+def test_running_open_webui_detects_page(monkeypatch):
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"<title>Open WebUI</title>")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    assert launcher.running_open_webui(port) == f"http://127.0.0.1:{port}/"
+    srv.shutdown()
+    assert launcher.running_open_webui(port) is None
