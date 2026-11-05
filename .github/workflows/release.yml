@@ -17,25 +17,11 @@ on:
         default: true
 permissions:
   contents: write
+env:
+  TAG: ${{ inputs.release_tag || github.ref_name }}
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            sep: ";"
-            src: dist/iped-ia-mcp.exe
-            asset: iped-ia-mcp-windows-x64.exe
-          - os: macos-latest   # Apple Silicon (arm64)
-            sep: ":"
-            src: dist/iped-ia-mcp
-            asset: iped-ia-mcp-macos-arm64.tar.gz
-          - os: macos-15-intel # Intel (x86_64)
-            sep: ":"
-            src: dist/iped-ia-mcp
-            asset: iped-ia-mcp-macos-x64.tar.gz
-    runs-on: ${{ matrix.os }}
+  windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,42 +35,76 @@ jobs:
           pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
             --collect-all fastmcp --collect-submodules iped_mcp \
             --hidden-import main --hidden-import requests --hidden-import dotenv \
-            --add-data "web-api-launcher.py${{ matrix.sep }}." --add-data "prompts${{ matrix.sep }}prompts" \
+            --add-data "web-api-launcher.py;." --add-data "prompts;prompts" \
             scripts/entry.py
       - name: Teste de fumaça
         shell: bash
         run: |
-          ${{ matrix.src }} --version
-          ${{ matrix.src }} --selftest
+          ./dist/iped-ia-mcp.exe --version
+          ./dist/iped-ia-mcp.exe --selftest
       - name: Preparar arquivo
         shell: bash
         run: |
           mkdir -p out
-          if [[ "${{ matrix.asset }}" == *.tar.gz ]]; then
-            chmod +x ${{ matrix.src }}
-            tar -czf "out/${{ matrix.asset }}" -C dist iped-ia-mcp
-          else
-            cp "${{ matrix.src }}" "out/${{ matrix.asset }}"
-          fi
-          cd out && (sha256sum "${{ matrix.asset }}" 2>/dev/null || shasum -a 256 "${{ matrix.asset }}") | tee "${{ matrix.asset }}.sha256"
+          cp dist/iped-ia-mcp.exe out/iped-ia-mcp-windows-x64.exe
+          cd out && sha256sum iped-ia-mcp-windows-x64.exe | tee iped-ia-mcp-windows-x64.exe.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
+          name: windows
           path: out/*
   publish:
-    needs: build
+    # O Windows publica sozinho; o macOS (abaixo) acrescenta seus arquivos depois, sem bloquear.
+    needs: windows
     if: ${{ github.ref_type == 'tag' || inputs.publicar }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: windows
           path: dist
-          merge-multiple: true
       - name: Criar release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ inputs.release_tag || github.ref_name }}"
           if [ "${{ github.ref_type }}" != "tag" ] && [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
           gh release create "$TAG" dist/* --repo "${{ github.repository }}" \
             --title "$TAG" --target "${{ github.sha }}" --generate-notes $FLAGS
+  macos:
+    needs: publish
+    if: ${{ always() && needs.publish.result == 'success' }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon (arm64)
+            asset: iped-ia-mcp-macos-arm64.tar.gz
+          - os: macos-15-intel # Intel (x86_64)
+            asset: iped-ia-mcp-macos-x64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . pytest pyinstaller
+      - run: pytest -q
+      - name: Empacotar
+        run: |
+          pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
+            --collect-all fastmcp --collect-submodules iped_mcp \
+            --hidden-import main --hidden-import requests --hidden-import dotenv \
+            --add-data "web-api-launcher.py:." --add-data "prompts:prompts" \
+            scripts/entry.py
+      - name: Teste de fumaça
+        run: |
+          ./dist/iped-ia-mcp --version
+          ./dist/iped-ia-mcp --selftest
+      - name: Anexar à release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out && chmod +x dist/iped-ia-mcp
+          tar -czf "out/${{ matrix.asset }}" -C dist iped-ia-mcp
+          (cd out && shasum -a 256 "${{ matrix.asset }}" | tee "${{ matrix.asset }}.sha256")
+          gh release upload "$TAG" out/* --repo "${{ github.repository }}" --clobber
