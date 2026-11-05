@@ -2,6 +2,17 @@
 
 MCP server (FastMCP) para interagir com dados telemáticos indexados no IPED.
 
+> ## Este repositório é um fork: o que é do original e o que foi acrescentado
+>
+> - **Original** ([`caiocfcs/iped-mcp`](https://github.com/caiocfcs/iped-mcp), autoria de Caio): o servidor MCP
+>   e as ~37 tools sobre a Web API do IPED, o roteamento multi-endpoint e o `web-api-launcher.py`.
+>   **Nada disso foi alterado.**
+> - **Acrescentado neste fork** (para usar com o Open WebUI e distribuir como programa):
+>   token e escuta só em 127.0.0.1, auditoria em cadeia de hash, tools de remoção de marcadores sob controle
+>   (`IPED_MCP_ALLOW_DESTRUCTIVE`), prompt do analista, launcher, e o executável `iped-ia-mcp`
+>   (Windows e macOS, na aba Releases). Veja a seção "Open WebUI (fork…)" abaixo.
+> - Para fazer o seu modelo conversar com os casos: use o executável deste repositório + Open WebUI + Ollama.
+
 - Endpoints IPED: variáveis de ambiente `IPED_ENDPOINTS` (múltiplos) ou
   `IPED_URL` (único, padrão `http://localhost:1234`)
 - Transporte: HTTP (streamable) em `http://127.0.0.1:8000/mcp`
