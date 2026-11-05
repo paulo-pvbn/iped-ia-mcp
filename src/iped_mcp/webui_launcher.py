@@ -207,6 +207,9 @@ def python_candidates() -> list[Path]:
         add(home / conda / exe)
         for env in sorted((home / conda / "envs").glob("*")):
             add(env / exe)
+    for base in list(found):  # Conda instalado fora da pasta pessoal (ex.: D:\\Python\\Conda): ambientes em envs/
+        for env in sorted((base.parent / "envs").glob("*")):
+            add(env / exe)
     unique: dict[str, Path] = {}
     for item in found:
         unique.setdefault(str(item).lower(), item)
@@ -286,24 +289,78 @@ def running_open_webui(*ports: int) -> str | None:
     return None
 
 
-def install_open_webui() -> int:
-    """Cria uma venv própria e instala o Open WebUI nela (baixa centenas de MB; leva vários minutos)."""
-    py = find_python_311()
-    if py is None:
-        say("ERRO: não achei Python 3.11 ou 3.12 (o Open WebUI não roda no 3.13+).", err=True)
-        say("Instale o Python 3.11 em python.org (marque 'Add to PATH') e clique de novo, ou use Docker.", err=True)
-        return 1
-    venv = OPENWEBUI_HOME / "venv"
+UV_ZIP_URL = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
+
+
+def _get_uv() -> str | None:
+    """Caminho de um `uv` (gerenciador que baixa o Python 3.11 sozinho): do PATH, via pip, ou baixado do GitHub."""
+    found = shutil.which("uv")
+    if found:
+        return found
+    tools = OPENWEBUI_HOME / "uvtool"
+    uv_exe = tools / ("Scripts/uv.exe" if os.name == "nt" else "bin/uv")
+    if uv_exe.is_file():
+        return str(uv_exe)
+    for py in python_candidates():  # qualquer Python (mesmo 3.13) serve só para instalar o uv
+        if subprocess.call([str(py), "-m", "venv", str(tools)]) == 0:  # noqa: S603
+            vpy = tools / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            if subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", "uv"]) == 0 and uv_exe.is_file():  # noqa: S603
+                return str(uv_exe)
+        break
+    if os.name == "nt":  # sem nenhum Python: baixa o uv.exe
+        try:
+            import io
+            import urllib.request
+            import zipfile
+
+            say("Baixando o uv (gerenciador do Python)…")
+            with urllib.request.urlopen(UV_ZIP_URL, timeout=120) as resp:  # noqa: S310
+                data = resp.read()
+            tools.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for member in zf.namelist():
+                    if member.lower().endswith("uv.exe"):
+                        (tools / "uv.exe").write_bytes(zf.read(member))
+                        return str(tools / "uv.exe")
+        except Exception as exc:  # noqa: BLE001
+            say(f"Não consegui baixar o uv: {exc}", err=True)
+    return None
+
+
+def install_open_webui(package: str = "open-webui") -> int:
+    """Instala o Open WebUI numa venv própria (baixa centenas de MB; leva vários minutos).
+
+    Usa um Python 3.11/3.12 do computador; se não houver (ex.: só 3.13), usa o `uv`, que baixa o 3.11 sozinho.
+    """
     OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
-    say(f"Criando ambiente em {venv} com {' '.join(py)}…")
-    if subprocess.call([*py, "-m", "venv", str(venv)]) != 0:  # noqa: S603
-        say("ERRO ao criar o ambiente virtual.", err=True)
-        return 1
+    venv = OPENWEBUI_HOME / "venv"
     vpy = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
-    code = subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", "open-webui"])  # noqa: S603
-    if code != 0 or not OPENWEBUI_EXE.is_file():
+    py = find_python_311()
+    if py is not None:
+        say(f"Criando ambiente em {venv} com {' '.join(py)}…")
+        if subprocess.call([*py, "-m", "venv", str(venv)]) != 0:  # noqa: S603
+            say("ERRO ao criar o ambiente virtual.", err=True)
+            return 1
+        say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
+        code = subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", package])  # noqa: S603
+    else:
+        found = ", ".join(f"{p} ({python_version(p) or '?'})" for p in python_candidates()) or "nenhum"
+        say(f"Não há Python 3.11/3.12 (encontrados: {found}). Vou usar o 'uv', que baixa o Python 3.11 sozinho.")
+        uv = _get_uv()
+        if uv is None:
+            say("ERRO: não consegui obter o uv (precisa de internet). Instale o Python 3.11 em python.org e tente de novo.", err=True)
+            return 1
+        say(f"Criando ambiente em {venv} com Python 3.11 (via uv)…")
+        if subprocess.call([uv, "venv", "--python", "3.11", str(venv)]) != 0:  # noqa: S603
+            say("ERRO: o uv não conseguiu criar o ambiente com Python 3.11.", err=True)
+            return 1
+        say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
+        code = subprocess.call([uv, "pip", "install", "--python", str(vpy), "--upgrade", package])  # noqa: S603
+    if code != 0:
         say("ERRO: a instalação do Open WebUI falhou (veja as mensagens acima).", err=True)
+        return 1
+    if package == "open-webui" and not OPENWEBUI_EXE.is_file():
+        say("ERRO: instalou, mas não achei o open-webui.exe no ambiente.", err=True)
         return 1
     say("Open WebUI instalado. Agora clique em 'Chat com IA'.")
     return 0
