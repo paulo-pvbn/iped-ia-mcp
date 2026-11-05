@@ -177,6 +177,13 @@ Este fork acrescenta, **sem alterar as tools originais**:
   Open WebUI (se instalado). Sem argumentos abre janelas para escolher a pasta do IPED e a pasta dos casos
   (lembra da escolha em `%APPDATA%\iped-ia-mcp\config.json`).
 
+**Janela (duplo clique no `.exe`, sem argumentos):** campos *Pasta do IPED*, *ORIGEM* (imagem ou pasta de evidências) e
+*DESTINO* (pasta do caso), com os botões **INDEXAR** (roda `java -jar iped.jar -d ORIGEM -o DESTINO`, com o log ao vivo),
+**Cancelar**, **Abrir caso** (IPED-SearchApp do DESTINO), **Multicasos…** (uma pasta com vários casos indexados) e
+**Chat com IA** (sobe Web APIs do IPED + MCP + Open WebUI e mostra no log a URL e o token). A opção "Permitir remover
+marcadores" liga ou desliga as tools de remoção. A sintaxe `-d/-o` é a padrão do IPED, mas **não foi validada aqui**:
+o comando completo aparece no log antes de rodar. Com argumentos (`--root`, `--cases-dir`…) o programa usa o modo de console.
+
 ```bash
 # executável (baixe em Releases; gerado pelo workflow "Release (executável Windows)")
 iped-ia-mcp.exe
