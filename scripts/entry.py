@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sources", help="multicases.json (padrão: gerado a partir da pasta de casos)")
     ap.add_argument("--cases-dir", help="pasta de um caso ou que contém vários casos")
     ap.add_argument("--mcp-port", type=int, default=8000)
-    ap.add_argument("--webui-port", type=int, default=3000)
+    ap.add_argument("--webui-port", type=int, default=3737, help="porta própria: outra origem evita cache/sessão de outros apps em localhost:3000")
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     ap.add_argument("--modelo", default="", help="modelo do Ollama usado no 'Analista IPED' (padrão: o primeiro encontrado)")
     ap.add_argument("--no-webui", action="store_true")
