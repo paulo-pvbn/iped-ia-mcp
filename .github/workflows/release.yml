@@ -1,5 +1,7 @@
 name: Release (executáveis Windows e macOS)
 on:
+  push:
+    tags: ["v*"]   # empurrar uma tag vN.N.N gera e publica a release pública
   workflow_dispatch:
     inputs:
       release_tag:
@@ -71,7 +73,7 @@ jobs:
           path: out/*
   publish:
     needs: build
-    if: ${{ inputs.publicar }}
+    if: ${{ github.ref_type == 'tag' || inputs.publicar }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -82,7 +84,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          FLAGS=""
-          if [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
-          gh release create "${{ inputs.release_tag }}" dist/* --repo "${{ github.repository }}" \
-            --title "${{ inputs.release_tag }}" --generate-notes $FLAGS
+          TAG="${{ inputs.release_tag || github.ref_name }}"
+          if [ "${{ github.ref_type }}" != "tag" ] && [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
+          gh release create "$TAG" dist/* --repo "${{ github.repository }}" \
+            --title "$TAG" --generate-notes $FLAGS
