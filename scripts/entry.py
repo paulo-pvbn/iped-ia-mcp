@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     ap.add_argument("--no-webui", action="store_true")
     ap.add_argument("--no-token", action="store_true")
-    ap.add_argument("--sem-destrutivas", action="store_true", help="desliga remover/renomear/apagar marcadores")
+    ap.add_argument("--sem-destrutivas", action="store_true", help="(já é o padrão) tools que removem/renomeiam/apagam marcadores ficam sempre desligadas")
     args, rest = ap.parse_known_args(argv)
     if args.modo is None:  # sem argumentos (duplo clique) abre a janela; com argumentos, o modo de console
         args.modo = "gui" if not (argv if argv is not None else sys.argv[1:]) else "iniciar"
