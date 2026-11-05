@@ -158,37 +158,131 @@ def find_open_webui() -> str | None:
     return None
 
 
+def python_candidates() -> list[Path]:
+    """Pythons do computador: PATH, launcher `py`, registro do Windows e pastas comuns (sem alias da Microsoft Store)."""
+    found: list[Path] = []
+
+    def add(path: str | Path | None) -> None:
+        if path and Path(path).is_file() and "WindowsApps" not in str(path):
+            found.append(Path(path))
+
+    for name in ("python", "python3", "python3.11", "python3.12"):
+        add(shutil.which(name))
+    if shutil.which("py"):
+        try:
+            out = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=20).stdout  # noqa: S603,S607
+            for line in out.splitlines():
+                m = re.search(r"([A-Za-z]:\\.*?python[w]?\.exe)\s*$", line.strip(), re.IGNORECASE)
+                if m:
+                    add(m.group(1))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if os.name == "nt":
+        try:
+            import winreg
+
+            for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    core = winreg.OpenKey(hive, r"SOFTWARE\Python\PythonCore")
+                except OSError:
+                    continue
+                for i in range(winreg.QueryInfoKey(core)[0]):
+                    try:
+                        with winreg.OpenKey(core, winreg.EnumKey(core, i) + r"\InstallPath") as key:
+                            add(Path(winreg.QueryValueEx(key, "")[0]) / "python.exe")
+                    except OSError:
+                        continue
+        except ImportError:  # pragma: no cover
+            pass
+    home = Path.home()
+    exe = "python.exe" if os.name == "nt" else "bin/python"
+    for root in (
+        Path(os.environ.get("LOCALAPPDATA", home / "AppData/Local")) / "Programs/Python",
+        Path(os.environ.get("ProgramFiles", "C:/Program Files")),
+        Path("C:/"),
+    ):
+        for p in sorted(root.glob("Python3*")):
+            add(p / exe)
+    for conda in ("anaconda3", "miniconda3", "miniforge3", "mambaforge"):
+        add(home / conda / exe)
+        for env in sorted((home / conda / "envs").glob("*")):
+            add(env / exe)
+    unique: dict[str, Path] = {}
+    for item in found:
+        unique.setdefault(str(item).lower(), item)
+    return list(unique.values())
+
+
+def python_version(py: Path) -> tuple[int, int] | None:
+    try:
+        out = subprocess.run(  # noqa: S603
+            [str(py), "-c", "import sys;print('%d.%d' % sys.version_info[:2])"], capture_output=True, text=True, timeout=20
+        ).stdout.strip()
+        major, minor = out.split(".")
+        return int(major), int(minor)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def find_open_webui_command() -> list[str] | None:
-    """Comando para subir o Open WebUI: o executável ou, se só o módulo estiver instalado, `python -m open_webui`."""
+    """Comando para subir o Open WebUI: o executável ou `python -m open_webui` em qualquer Python do computador."""
     exe = find_open_webui()
     if exe:
         return [exe]
+    pythons = python_candidates()
+    for py in pythons:  # open-webui.exe ao lado do Python (venv) ou em Scripts/ (instalação base)
+        for rel in ("open-webui.exe", "Scripts/open-webui.exe", "bin/open-webui"):
+            if (py.parent / rel).is_file():
+                return [str(py.parent / rel)]
     probe = "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('open_webui') else 1)"
-    for py in (["py", "-3.11"], ["py", "-3.12"], ["py"], ["python"], ["python3"]):
-        if not shutil.which(py[0]):
-            continue
+    for py in pythons:
         try:
-            if subprocess.run([*py, "-c", probe], capture_output=True, timeout=30).returncode == 0:  # noqa: S603
-                return [*py, "-m", "open_webui"]
+            if subprocess.run([str(py), "-c", probe], capture_output=True, timeout=30).returncode == 0:  # noqa: S603
+                return [str(py), "-m", "open_webui"]
         except (OSError, subprocess.SubprocessError):
             continue
     return None
 
 
 def find_python_311() -> list[str] | None:
-    """Comando de um Python 3.11/3.12 (o Open WebUI exige >=3.11,<3.13); None se não houver."""
-    candidates = [["py", "-3.11"], ["py", "-3.12"], ["python3.11"], ["python3.12"], ["python"], ["python3"]]
-    for cmd in candidates:
-        if not shutil.which(cmd[0]):
-            continue
+    """Python 3.11/3.12 (o Open WebUI exige >=3.11,<3.13); None se não houver."""
+    for py in python_candidates():
+        if python_version(py) in ((3, 11), (3, 12)):
+            return [str(py)]
+    return None
+
+
+def open_browser_when_ready(url: str, port: int | None) -> None:
+    """Abre o navegador no Open WebUI assim que ele responder (em segundo plano)."""
+
+    def work() -> None:
+        deadline = time.monotonic() + 600
+        while port is not None and not port_open("127.0.0.1", port):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(2)
         try:
-            out = subprocess.run(  # noqa: S603
-                [*cmd, "-c", "import sys;print(sys.version_info[:2])"], capture_output=True, text=True, timeout=20
-            ).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
+            import webbrowser
+
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def running_open_webui(*ports: int) -> str | None:
+    """URL de um Open WebUI já respondendo (3000 do Docker/nosso, 8080 padrão do pip)."""
+    import urllib.request
+
+    for port in dict.fromkeys(ports):
+        url = f"http://127.0.0.1:{port}/"
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
+                if b"open webui" in resp.read(200000).lower():
+                    return url
+        except Exception:  # noqa: BLE001, S112
             continue
-        if out in ("(3, 11)", "(3, 12)"):
-            return cmd
     return None
 
 
@@ -392,25 +486,32 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             time.sleep(0.5)
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
+        webui_url = f"http://127.0.0.1:{args.webui_port}"
         if not args.no_webui:
-            webui_cmd = find_open_webui_command()
-            if port_open("127.0.0.1", args.webui_port):
-                say(f"[3/3] Já existe algo respondendo na porta {args.webui_port} (Open WebUI aberto?); usando esse.")
+            running = running_open_webui(args.webui_port, 8080)
+            webui_cmd = None if running else find_open_webui_command()
+            if running:
+                say(f"[3/3] Open WebUI já está aberto em {running}; usando esse.")
+                webui_url = running
+                open_browser_when_ready(running, None)
             elif webui_cmd:
                 say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
                 wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 procs.append(subprocess.Popen([*webui_cmd, "serve", "--port", str(args.webui_port)], env=wenv))  # noqa: S603
+                open_browser_when_ready(webui_url, args.webui_port)
             else:
-                say("[3/3] Não achei o Open WebUI: use 'Localizar Open WebUI' na janela para apontar o open-webui.exe,")
-                say("      ou 'Instalar Open WebUI' (precisa de Python 3.11), ou suba o seu e aponte para este MCP.")
+                say("[3/3] Não achei o Open WebUI neste computador. Pythons encontrados:")
+                for py in python_candidates() or []:
+                    say(f"      {py} ({python_version(py) or '?'})")
+                say("      Use 'Localizar Open WebUI' para apontar o open-webui.exe, ou 'Instalar Open WebUI'.")
 
         prompt_file = ROOT / "prompts" / "analista.md"
         say("\n=== PRONTO ===")
         say(f"MCP:        http://127.0.0.1:{args.mcp_port}/mcp")
         say(f"Token:      {token or '(sem token)'}  -> Authorization: Bearer <token>")
-        say(f"Open WebUI: http://127.0.0.1:{args.webui_port}")
+        say(f"Open WebUI: {webui_url}")
         say("No Open WebUI: Admin Settings > External Tools > + > MCP (Streamable HTTP) > URL e token acima.")
         say(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
         say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
