@@ -151,6 +151,28 @@ python web-api-launcher.py --root "C:\caminho\para\iped" --sources "C:\caminho\m
 Sem argumentos, usa `./` como root e `./multicases.json`. Detalhes em
 `WEB-API-LAUNCHER.md`.
 
+## Open WebUI (fork: segurança, auditoria e launcher)
+
+Este fork acrescenta, **sem alterar as tools originais**:
+
+- **Token** (`IPED_MCP_TOKEN`) e escuta só em `127.0.0.1` por padrão; fora dele o servidor não sobe sem token.
+- **Tools destrutivas desligadas por padrão**: `bookmarks_remove`, `bookmarks_rename`, `bookmarks_delete` e
+  `bookmarks_remove_from_file`. Criar e acrescentar continuam. `IPED_MCP_ALLOW_DESTRUCTIVE=1` liga de volta.
+- **Auditoria em cadeia de hash** (`audit/iped-mcp-audit.jsonl`): uma linha por chamada (tool, argumentos,
+  ok/erro, duração), sem o conteúdo devolvido. Confira com `python -m iped_mcp.security`.
+- **Prompt do analista** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): cole nas
+  instruções do modelo no Open WebUI.
+- **Launcher** `iniciar-webui.py`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o Open WebUI.
+
+```bash
+python iniciar-webui.py --root "C:\CIAF\IPED431\iped-4.3.1" --sources multicases.json
+```
+
+No Open WebUI (v0.6.31+): Admin Settings → External Tools → **+** → **MCP (Streamable HTTP)** → URL
+`http://127.0.0.1:8000/mcp` e o token mostrado pelo launcher. No modelo: contexto de 16k ou mais e raciocínio
+ligado. Use modelo **local** (Ollama): o servidor dá acesso a dados de casos. **Não validado ainda** contra o
+Open WebUI e o IPED reais (os testes usam clientes MCP em memória).
+
 ## Ambiente
 
 É recomendável executar o MCP **no mesmo ambiente do harness** (opencode),
