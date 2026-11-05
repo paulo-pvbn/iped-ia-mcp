@@ -1,4 +1,4 @@
-name: Release (executável Windows)
+name: Release (executáveis Windows e macOS)
 on:
   workflow_dispatch:
     inputs:
@@ -9,11 +9,31 @@ on:
         description: "Publicar como release (false = só gera os artefatos)"
         type: boolean
         default: false
+      rascunho:
+        description: "Publicar como rascunho (false = release pública)"
+        type: boolean
+        default: true
 permissions:
   contents: write
 jobs:
-  exe:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            sep: ";"
+            src: dist/iped-ia-mcp.exe
+            asset: iped-ia-mcp-windows-x64.exe
+          - os: macos-latest   # Apple Silicon (arm64)
+            sep: ":"
+            src: dist/iped-ia-mcp
+            asset: iped-ia-mcp-macos-arm64.tar.gz
+          - os: macos-13       # Intel (x86_64)
+            sep: ":"
+            src: dist/iped-ia-mcp
+            asset: iped-ia-mcp-macos-x64.tar.gz
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,35 +47,42 @@ jobs:
           pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
             --collect-all fastmcp --collect-submodules iped_mcp \
             --hidden-import main --hidden-import requests --hidden-import dotenv \
-            --add-data "web-api-launcher.py;." --add-data "prompts;prompts" \
+            --add-data "web-api-launcher.py${{ matrix.sep }}." --add-data "prompts${{ matrix.sep }}prompts" \
             scripts/entry.py
       - name: Teste de fumaça
         shell: bash
         run: |
-          ./dist/iped-ia-mcp.exe --version
-          ./dist/iped-ia-mcp.exe --selftest
-      - name: SHA-256
+          ${{ matrix.src }} --version
+          ${{ matrix.src }} --selftest
+      - name: Preparar arquivo
         shell: bash
         run: |
-          cd dist && sha256sum iped-ia-mcp.exe > iped-ia-mcp.exe.sha256 && cat iped-ia-mcp.exe.sha256
+          mkdir -p out
+          if [[ "${{ matrix.asset }}" == *.tar.gz ]]; then
+            chmod +x ${{ matrix.src }}
+            tar -czf "out/${{ matrix.asset }}" -C dist iped-ia-mcp
+          else
+            cp "${{ matrix.src }}" "out/${{ matrix.asset }}"
+          fi
+          cd out && (sha256sum "${{ matrix.asset }}" 2>/dev/null || shasum -a 256 "${{ matrix.asset }}") | tee "${{ matrix.asset }}.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: iped-ia-mcp-windows
-          path: |
-            dist/iped-ia-mcp.exe
-            dist/iped-ia-mcp.exe.sha256
+          name: ${{ matrix.asset }}
+          path: out/*
   publish:
-    needs: exe
+    needs: build
     if: ${{ inputs.publicar }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: iped-ia-mcp-windows
           path: dist
+          merge-multiple: true
       - name: Criar release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          FLAGS=""
+          if [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
           gh release create "${{ inputs.release_tag }}" dist/* --repo "${{ github.repository }}" \
-            --title "${{ inputs.release_tag }}" --generate-notes --draft
+            --title "${{ inputs.release_tag }}" --generate-notes $FLAGS
