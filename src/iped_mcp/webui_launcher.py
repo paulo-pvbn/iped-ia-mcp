@@ -275,6 +275,15 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 # As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
 # (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
 NUM_CTX = 16384
+# O Open WebUI compara com o FIM do nome (sufixo). Só estas ferramentas vão ao modelo: as 33 gastam
+# ~9k tokens de contexto e confundem modelos locais (ele chegava a dizer que não tinha ferramentas).
+# '!save_search' bloqueia bookmarks_save_search, que também termina em 'search'.
+ESSENTIAL_TOOLS = (
+    "list_sources,search,doc_info,doc_text,get_document,regex_list_types,regex_stats,regex_top_values,"
+    "regex_value_docs,ufed_device_info,ufed_list_fields,ufed_search,whatsapp_overview,whatsapp_account,"
+    "whatsapp_conversation,whatsapp_text_search,whatsapp_reference,bookmarks_list,bookmarks_create,"
+    "bookmarks_add,bookmarks_docs,!save_search"
+)
 
 
 def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "") -> tuple[bool, str]:
@@ -296,7 +305,7 @@ def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_pro
             "type": "mcp",
             "auth_type": "bearer" if mcp_token else "none",
             "key": mcp_token or "",
-            "config": {"enable": True, "access_control": None},
+            "config": {"enable": True, "access_control": None, "function_name_filter_list": ESSENTIAL_TOOLS},
             "info": {"id": MCP_ID, "name": "IPED", "description": "Casos do IPED (somente leitura)"},
         }
         _api("POST", f"{base}/api/v1/configs/tool_servers", {"TOOL_SERVER_CONNECTIONS": [connection]}, token)
@@ -311,7 +320,11 @@ def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_pro
             "id": PRESET_ID,
             "base_model_id": chosen["id"],
             "name": "Analista IPED",
-            "meta": {"description": "Analista forense com as ferramentas do IPED", "toolIds": [f"server:mcp:{MCP_ID}"]},
+            "meta": {
+                "description": "Analista forense com as ferramentas do IPED",
+                "toolIds": [f"server:mcp:{MCP_ID}"],
+                "capabilities": {"builtin_tools": False},  # sem search_knowledge_files etc.: só as do IPED
+            },
             "params": {"system": system_prompt, "function_calling": "native", "num_ctx": NUM_CTX},
             "is_active": True,
         }

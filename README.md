@@ -218,3 +218,8 @@ contra o Open WebUI 0.13; versões muito diferentes podem exigir cadastro manual
 O Open WebUI do programa usa a porta **3737** (e não a 3000): outro endereço evita que o navegador reaproveite páginas,
 sessões ou *service workers* de outros programas que já usaram `localhost:3000` (causa comum da tela
 "Backend Open WebUI necessário").
+
+**Contexto do modelo.** O "Analista IPED" é criado com `num_ctx` 16384 e só enxerga as ~21 ferramentas essenciais
+(busca, leitura de itens, regex, ufed, WhatsApp, criar/acrescentar marcador); as ferramentas internas do Open WebUI ficam
+desligadas. Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta do usuário e o modelo Qwen falhava com
+"No user query found in messages". O servidor MCP em si continua expondo todas as ferramentas a outros clientes.
