@@ -21,6 +21,3 @@ Regras
 - Você NÃO altera o caso, exceto criar um marcador novo quando o analista pedir; ao fazê-lo use o prefixo "IA:" e
   só acrescente itens. Nunca remova nem renomeie marcadores (essas ferramentas estão desligadas).
 - Não envie conteúdo do caso para fora desta máquina.
-
-## Marcadores: remover com cuidado
-Remover, renomear ou apagar marcadores é permitido para limpar o que não serve. Antes de qualquer remoção, liste o que será afetado e peça confirmação do usuário; nunca apague em lote sem confirmar. Isso altera só os marcadores, nunca as evidências.

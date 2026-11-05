@@ -530,10 +530,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         if args.mcp_port != wanted:
             say(f"AVISO: a porta {wanted} já está em uso (execução anterior ainda aberta?); usando {args.mcp_port}.")
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
-        if args.sem_destrutivas:
-            env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)
-        else:  # a análise precisa limpar marcadores; cada chamada fica na auditoria
-            env["IPED_MCP_ALLOW_DESTRUCTIVE"] = "1"
+        env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)  # remover marcadores se faz no próprio IPED: tools destrutivas sempre desligadas
         env.pop("IPED_URL", None)  # IPED_URL e IPED_ENDPOINTS juntas são erro no MCP
         env["FASTMCP_CHECK_FOR_UPDATES"] = "off"  # sem consulta à internet na subida (pode demorar em rede restrita)
         if token:
