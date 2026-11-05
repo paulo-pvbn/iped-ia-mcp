@@ -20,12 +20,12 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--modo", choices=["gui", "iniciar", "mcp", "webapi", "verificar"], default=None)
+    ap.add_argument("--modo", choices=["gui", "iniciar", "mcp", "webapi", "verificar", "instalar-webui"], default=None)
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--root", help="pasta do IPED (com jre/ e lib/iped-webapi.jar)")
@@ -56,6 +56,16 @@ def main(argv: list[str] | None = None) -> int:
             import tkinter  # noqa: F401  (tem de estar empacotado)
         print(f"selftest {'ok' if ok else 'FALHOU'}: {len(tools)} tools, prompt={prompt.is_file()}")
         return 0 if ok else 1
+    if args.modo != "gui" and not sys.stdout.isatty():  # saída em pipe (janela do programa): sempre UTF-8
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+    if args.modo == "instalar-webui":
+        from iped_mcp import webui_launcher
+
+        return webui_launcher.install_open_webui()
     if args.modo == "mcp":
         import main as server
 

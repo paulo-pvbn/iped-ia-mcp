@@ -135,7 +135,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_open = ttk.Button(bar, text="Abrir caso", command=self.open_case)
         self.btn_multi = ttk.Button(bar, text="Multicasos...", command=self.pick_multi)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
-        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat):
+        self.btn_webui = ttk.Button(bar, text="Instalar Open WebUI", command=self.install_webui)
+        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_webui):
             btn.pack(side="left", padx=4)
         self.destrutivas = tk.BooleanVar(value=True)
         ttk.Checkbutton(bar, text="Permitir remover marcadores", variable=self.destrutivas).pack(side="left", padx=12)
@@ -266,6 +267,25 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.messagebox.showerror(APP_TITLE, f"Não consegui abrir o caso: {exc}")
             return
         self.say(f"Abrindo caso: {app}")
+
+    def install_webui(self) -> None:
+        if wl.find_open_webui():
+            self.messagebox.showinfo(APP_TITLE, "O Open WebUI já está instalado. Use 'Chat com IA'.")
+            return
+        if not self.messagebox.askyesno(
+            APP_TITLE, "Instalar o Open WebUI agora?\n\nPrecisa de Python 3.11 e internet; baixa centenas de MB e leva vários minutos."
+        ):
+            return
+        self.btn_webui.configure(state="disabled")
+        self.progress.start(12)
+        proc = self.run_proc(wl.self_command("instalar-webui"), env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"))
+
+        def wait() -> None:
+            code = proc.wait()
+            self.root.after(0, lambda: (self.progress.stop(), self.btn_webui.configure(state="normal")))
+            self.say("Instalação concluída." if code == 0 else f"Instalação falhou (código {code}).")
+
+        threading.Thread(target=wait, daemon=True).start()
 
     def toggle_chat(self) -> None:
         if self.chat_proc is not None:

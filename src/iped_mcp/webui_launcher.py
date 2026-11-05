@@ -111,6 +111,57 @@ def stop(proc: subprocess.Popen) -> None:
 
 
 # ----------------------------------------------------------------------------------------- perguntas
+OPENWEBUI_HOME = CONFIG_PATH.parent / "openwebui"  # venv gerenciada + dados do Open WebUI
+OPENWEBUI_EXE = OPENWEBUI_HOME / "venv" / ("Scripts/open-webui.exe" if os.name == "nt" else "bin/open-webui")
+
+
+def find_open_webui() -> str | None:
+    """Open WebUI instalado pelo botão do programa ou já presente no PATH."""
+    if OPENWEBUI_EXE.is_file():
+        return str(OPENWEBUI_EXE)
+    return shutil.which("open-webui")
+
+
+def find_python_311() -> list[str] | None:
+    """Comando de um Python 3.11/3.12 (o Open WebUI exige >=3.11,<3.13); None se não houver."""
+    candidates = [["py", "-3.11"], ["py", "-3.12"], ["python3.11"], ["python3.12"], ["python"], ["python3"]]
+    for cmd in candidates:
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            out = subprocess.run(  # noqa: S603
+                [*cmd, "-c", "import sys;print(sys.version_info[:2])"], capture_output=True, text=True, timeout=20
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out in ("(3, 11)", "(3, 12)"):
+            return cmd
+    return None
+
+
+def install_open_webui() -> int:
+    """Cria uma venv própria e instala o Open WebUI nela (baixa centenas de MB; leva vários minutos)."""
+    py = find_python_311()
+    if py is None:
+        say("ERRO: não achei Python 3.11 ou 3.12 (o Open WebUI não roda no 3.13+).", err=True)
+        say("Instale o Python 3.11 em python.org (marque 'Add to PATH') e clique de novo, ou use Docker.", err=True)
+        return 1
+    venv = OPENWEBUI_HOME / "venv"
+    OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
+    say(f"Criando ambiente em {venv} com {' '.join(py)}…")
+    if subprocess.call([*py, "-m", "venv", str(venv)]) != 0:  # noqa: S603
+        say("ERRO ao criar o ambiente virtual.", err=True)
+        return 1
+    vpy = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
+    code = subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", "open-webui"])  # noqa: S603
+    if code != 0 or not OPENWEBUI_EXE.is_file():
+        say("ERRO: a instalação do Open WebUI falhou (veja as mensagens acima).", err=True)
+        return 1
+    say("Open WebUI instalado. Agora clique em 'Chat com IA'.")
+    return 0
+
+
 def load_config() -> dict[str, str]:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -285,14 +336,16 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
         if not args.no_webui:
-            exe = shutil.which("open-webui")
+            exe = find_open_webui()
             if exe:
-                say("[3/3] Subindo o Open WebUI…")
-                wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url)
-                procs.append(subprocess.Popen([exe, "serve", "--port", str(args.webui_port)], env=wenv))
+                say("[3/3] Subindo o Open WebUI (a primeira vez demora)…")
+                OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
+                wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
+                wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
+                procs.append(subprocess.Popen([exe, "serve", "--port", str(args.webui_port)], env=wenv))  # noqa: S603
             else:
-                say("[3/3] Open WebUI não encontrado: instale com 'pip install open-webui' (Python 3.11) ou use")
-                say("      Docker e aponte para este MCP com host.docker.internal.")
+                say("[3/3] Open WebUI não instalado: clique em 'Instalar Open WebUI' na janela")
+                say("      (precisa de Python 3.11) ou use Docker apontando para este MCP.")
 
         prompt_file = ROOT / "prompts" / "analista.md"
         say("\n=== PRONTO ===")
