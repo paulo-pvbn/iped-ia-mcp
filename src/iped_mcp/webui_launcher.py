@@ -323,7 +323,7 @@ def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_pro
         return False, f"falha ao configurar o Open WebUI ({exc})"
 
 
-def finish_open_webui(url: str, port: int | None, setup: dict | None) -> None:
+def finish_open_webui(url: str, port: int | None, setup: dict | None, proc: subprocess.Popen | None = None) -> None:
     """Em segundo plano: espera o Open WebUI responder, configura o IPED nele e abre o navegador."""
 
     def work() -> None:
@@ -331,6 +331,10 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None) -> None:
         deadline = start + 900
         last = start
         while port is not None and not _healthy(url):
+            if proc is not None and proc.poll() is not None:
+                say(f"O Open WebUI fechou sozinho (código {proc.returncode}). Fim do log ({OPENWEBUI_HOME / 'open-webui.log'}):", err=True)
+                say(log_tail(OPENWEBUI_HOME / "open-webui.log"), err=True)
+                return
             if time.monotonic() > deadline:
                 say("O Open WebUI não respondeu em 15 min; veja o log em " + str(OPENWEBUI_HOME / "open-webui.log"), err=True)
                 return
@@ -361,10 +365,19 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None) -> None:
 
 
 def _healthy(url: str) -> bool:
+    """O Open WebUI está pronto quando /api/config (o que a página pede ao abrir) responde com JSON válido."""
     try:
-        return bool(_api("GET", url.rstrip("/") + "/health", None, None, 5))
+        cfg = _api("GET", url.rstrip("/") + "/api/config", None, None, 8)
+        return isinstance(cfg, dict) and bool(cfg.get("name"))
     except Exception:  # noqa: BLE001
         return False
+
+
+def log_tail(path: Path, lines: int = 15) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    except OSError:
+        return "(sem log)"
 
 
 def running_open_webui(*ports: int) -> str | None:
@@ -659,12 +672,11 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 log_file = open(OPENWEBUI_HOME / "open-webui.log", "ab")  # noqa: SIM115  (saída ruidosa vai para arquivo)
                 say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")
-                procs.append(
-                    subprocess.Popen(  # noqa: S603
-                        [*webui_cmd, "serve", "--host", "127.0.0.1", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
-                    )
+                webui_proc = subprocess.Popen(  # noqa: S603
+                    [*webui_cmd, "serve", "--host", "127.0.0.1", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
                 )
-                finish_open_webui(webui_url, args.webui_port, setup)
+                procs.append(webui_proc)
+                finish_open_webui(webui_url, args.webui_port, setup, webui_proc)
             else:
                 say("[3/3] Não achei o Open WebUI neste computador. Pythons encontrados:")
                 for py in python_candidates() or []:
