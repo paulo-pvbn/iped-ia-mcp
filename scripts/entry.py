@@ -20,7 +20,7 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 
 
 def main(argv: list[str] | None = None) -> int:
