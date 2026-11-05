@@ -259,10 +259,16 @@ def open_browser_when_ready(url: str, port: int | None) -> None:
     """Abre o navegador no Open WebUI assim que ele responder (em segundo plano)."""
 
     def work() -> None:
-        deadline = time.monotonic() + 600
+        start = time.monotonic()
+        deadline = start + 900
+        last = start
         while port is not None and not port_open("127.0.0.1", port):
             if time.monotonic() > deadline:
+                say("O Open WebUI não respondeu em 15 min; veja o log em " + str(OPENWEBUI_HOME / "open-webui.log"), err=True)
                 return
+            if time.monotonic() - last > 20:
+                last = time.monotonic()
+                say(f"   Open WebUI ainda iniciando ({last - start:.0f}s): na primeira vez ele baixa um modelo; não está travado.")
             time.sleep(2)
         try:
             import webbrowser
@@ -556,7 +562,13 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
                 wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
-                procs.append(subprocess.Popen([*webui_cmd, "serve", "--port", str(args.webui_port)], env=wenv))  # noqa: S603
+                log_file = open(OPENWEBUI_HOME / "open-webui.log", "ab")  # noqa: SIM115  (saída ruidosa vai para arquivo)
+                say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")
+                procs.append(
+                    subprocess.Popen(  # noqa: S603
+                        [*webui_cmd, "serve", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
+                    )
+                )
                 open_browser_when_ready(webui_url, args.webui_port)
             else:
                 say("[3/3] Não achei o Open WebUI neste computador. Pythons encontrados:")
