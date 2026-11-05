@@ -1,0 +1,61 @@
+name: Release (executável Windows)
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag da versão (ex.: v0.2.0)"
+        required: true
+      publicar:
+        description: "Publicar como release (false = só gera os artefatos)"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . pytest pyinstaller
+      - run: pytest -q
+      - name: Empacotar
+        shell: bash
+        run: |
+          pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
+            --collect-all fastmcp --collect-submodules iped_mcp \
+            --hidden-import main --hidden-import requests --hidden-import dotenv \
+            --add-data "web-api-launcher.py;." --add-data "prompts;prompts" \
+            scripts/entry.py
+      - name: Teste de fumaça
+        shell: bash
+        run: |
+          ./dist/iped-ia-mcp.exe --version
+          ./dist/iped-ia-mcp.exe --selftest
+      - name: SHA-256
+        shell: bash
+        run: |
+          cd dist && sha256sum iped-ia-mcp.exe > iped-ia-mcp.exe.sha256 && cat iped-ia-mcp.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iped-ia-mcp-windows
+          path: |
+            dist/iped-ia-mcp.exe
+            dist/iped-ia-mcp.exe.sha256
+  publish:
+    needs: exe
+    if: ${{ inputs.publicar }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: iped-ia-mcp-windows
+          path: dist
+      - name: Criar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" dist/* --repo "${{ github.repository }}" \
+            --title "${{ inputs.release_tag }}" --generate-notes --draft
