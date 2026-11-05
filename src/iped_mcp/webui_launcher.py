@@ -381,7 +381,7 @@ def log_tail(path: Path, lines: int = 15) -> str:
 
 
 def running_open_webui(*ports: int) -> str | None:
-    """URL de um Open WebUI já respondendo (3000 do Docker/nosso, 8080 padrão do pip)."""
+    """URL de um Open WebUI já respondendo nas portas dadas (o nosso, de uma execução anterior)."""
     import urllib.request
 
     for port in dict.fromkeys(ports):
@@ -655,7 +655,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "model": getattr(args, "modelo", "") or "",
         }
         if not args.no_webui:
-            running = running_open_webui(args.webui_port, 8080)
+            running = running_open_webui(args.webui_port)
             webui_cmd = None if running else find_open_webui_command()
             if running:
                 say(f"[3/3] Open WebUI já está aberto em {running}; usando esse.")
