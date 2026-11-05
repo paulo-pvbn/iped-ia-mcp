@@ -160,3 +160,49 @@ def test_python_candidates_expand_conda_envs(tmp_path, monkeypatch):
     assert base in found
     if launcher.os.name == "nt":  # em Linux o python do conda fica em bin/: o envs/ está um nível acima
         assert env in found
+
+
+def test_provision_open_webui_against_fake_server():
+    import http.server
+    import json as _json
+    import threading
+
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def _send(self, obj, code=200):
+            body = _json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            seen.append(("GET", self.path))
+            if self.path == "/api/models":
+                self._send({"data": [{"id": "qwen:7b", "owned_by": "ollama"}, {"id": "outro", "owned_by": "openai"}]})
+            else:
+                self._send({"status": True})
+
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            seen.append(("POST", self.path, body, self.headers.get("Authorization")))
+            self._send({"token": "T"} if self.path.endswith("/signin") else body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT")
+    srv.shutdown()
+    assert ok, msg
+    posts = {p[1]: p for p in seen if p[0] == "POST"}
+    conn = posts["/api/v1/configs/tool_servers"][2]["TOOL_SERVER_CONNECTIONS"][0]
+    assert conn["type"] == "mcp" and conn["auth_type"] == "bearer" and conn["key"] == "tok" and conn["info"]["id"] == "iped"
+    assert posts["/api/v1/configs/tool_servers"][3] == "Bearer T"
+    model = posts["/api/v1/models/create"][2]
+    assert model["base_model_id"] == "qwen:7b" and model["meta"]["toolIds"] == ["server:mcp:iped"]
+    assert model["params"]["system"] == "PROMPT" and model["params"]["function_calling"] == "native"
+    assert posts["/api/v1/configs/models"][2]["DEFAULT_MODELS"] == "analista-iped"
