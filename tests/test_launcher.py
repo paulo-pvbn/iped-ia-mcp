@@ -59,3 +59,11 @@ def test_source_json_is_ascii_even_with_accents(tmp_path):
     assert json.loads(text)[0]["path"] == "D:\\Polícia Federal\\Exercício"
     src = Path(__file__).resolve().parent.parent / "web-api-launcher.py"
     assert "ensure_ascii=True" in src.read_text(encoding="utf-8")
+
+
+def test_cases_found_up_to_three_levels_and_ids_without_accents(tmp_path):
+    (tmp_path / "Polícia Federal" / "Caso Ação" / "iped").mkdir(parents=True)
+    (tmp_path / "outro" / "iped").mkdir(parents=True)
+    ids = [s["id"] for s in launcher.sources_from_cases_dir(tmp_path)]
+    assert ids == ["outro", "Caso_Acao"] or ids == ["Caso_Acao", "outro"]
+    assert all(i.isascii() for i in ids)
