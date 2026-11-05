@@ -175,7 +175,7 @@ iped-ia-mcp.exe --modo verificar          # confere a cadeia de hash da auditori
 python scripts/entry.py --root "C:\CIAF\IPED431\iped-4.3.1" --sources multicases.json
 ```
 
-O executável é gerado no GitHub Actions (PyInstaller, Windows) e **não é assinado**: confira o `.sha256` da release.
+Executáveis gerados no GitHub Actions (PyInstaller) para Windows (`.exe`) e macOS (Apple Silicon e Intel, `.tar.gz`); **não são assinados**: confira o `.sha256` da release. No macOS: `tar -xzf` e, se o Gatekeeper bloquear, `xattr -d com.apple.quarantine ./iped-ia-mcp` (ou botão direito → Abrir). Os executáveis de macOS ainda não foram testados em um Mac.
 O IPED (Java) **não** vai dentro dele; aponte a pasta do IPED. O Open WebUI também não: `pip install open-webui`
 (Python 3.11) ou Docker.
 
