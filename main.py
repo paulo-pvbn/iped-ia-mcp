@@ -7,14 +7,24 @@ from iped_mcp.bookmarks import register as register_bookmarks
 from iped_mcp.core import register as register_core
 from iped_mcp.regex import register as register_regex
 from iped_mcp.router import RouterStartupError, get_router
+from iped_mcp.security import (
+    AuditLog,
+    AuditMiddleware,
+    SecurityConfig,
+    SecurityConfigError,
+    apply_tool_policy,
+    build_auth,
+)
 from iped_mcp.ufed import register as register_ufed
 from iped_mcp.whatsapp import register as register_whatsapp
 
-HOST = "127.0.0.1"
-PORT = 8000
+SECURITY = SecurityConfig.from_env()
+HOST = SECURITY.host
+PORT = SECURITY.port
 
 mcp = FastMCP(
     "iped_mcp",
+    auth=build_auth(SECURITY.token),
     instructions=(
         "MCP para consultar dados telemáticos indexados no IPED. "
         "Comece com iped_list_sources para ver os sources disponíveis. "
@@ -52,9 +62,29 @@ register_regex(mcp)
 register_bookmarks(mcp)
 register_whatsapp(mcp)
 
+# Acréscimos do fork: tools destrutivas desligadas por padrão, auditoria em cadeia e prompt do analista.
+DISABLED_TOOLS = apply_tool_policy(mcp, SECURITY.allow_destructive)
+mcp.add_middleware(AuditMiddleware(AuditLog(SECURITY.audit_path)))
+
+
+@mcp.prompt(name="analista_forense", description="Instruções do analista forense (cole no modelo do Open WebUI)")
+def analista_forense() -> str:
+    from pathlib import Path
+
+    return (Path(__file__).parent / "prompts" / "analista.md").read_text(encoding="utf-8")
+
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        SECURITY.validate()
+    except SecurityConfigError as exc:
+        print(f"IPED MCP: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if DISABLED_TOOLS:
+        logging.getLogger("iped_mcp").info(
+            "Tools desligadas (IPED_MCP_ALLOW_DESTRUCTIVE=1 liga): %s", ", ".join(DISABLED_TOOLS)
+        )
     try:
         get_router()
     except RouterStartupError as exc:
