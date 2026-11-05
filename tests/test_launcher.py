@@ -76,3 +76,13 @@ def test_host_port_and_say_writes_log(tmp_path, monkeypatch, capsys):
     launcher.say("olá, ação")
     assert "olá, ação" in capsys.readouterr().out
     assert "olá, ação" in (tmp_path / "log" / "ultimo-log.txt").read_text(encoding="utf-8")
+
+
+def test_find_open_webui_prefers_managed_venv(tmp_path, monkeypatch):
+    exe = tmp_path / "open-webui"
+    exe.write_text("x")
+    monkeypatch.setattr(launcher, "OPENWEBUI_EXE", exe)
+    assert launcher.find_open_webui() == str(exe)
+    monkeypatch.setattr(launcher, "OPENWEBUI_EXE", tmp_path / "nao-existe")
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
+    assert launcher.find_open_webui() is None

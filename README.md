@@ -174,8 +174,9 @@ Este fork acrescenta, **sem alterar as tools originais**:
 - **Prompt do analista** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): cole nas
   instruções do modelo no Open WebUI.
 - **Launcher / executável** `iped-ia-mcp.exe`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o
-  Open WebUI (se instalado). Sem argumentos abre janelas para escolher a pasta do IPED e a pasta dos casos
-  (lembra da escolha em `%APPDATA%\iped-ia-mcp\config.json`).
+  Open WebUI. Sem argumentos abre a janela, onde cada usuário informa as suas pastas (nada vem preenchido). O botão
+  **Instalar Open WebUI** cria um ambiente próprio em `%APPDATA%\iped-ia-mcp\openwebui` (precisa de Python 3.11 e
+  internet); depois, **Chat com IA** sobe tudo e o Open WebUI usa o Ollama em `http://127.0.0.1:11434`.
 
 **Janela (duplo clique no `.exe`, sem argumentos):** campos *Pasta do IPED*, *ORIGEM* (imagem ou pasta de evidências) e
 *DESTINO* (pasta do caso), com os botões **INDEXAR** (roda `java -jar iped.jar -d ORIGEM -o DESTINO`, com o log ao vivo),
