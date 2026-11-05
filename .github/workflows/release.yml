@@ -87,4 +87,4 @@ jobs:
           TAG="${{ inputs.release_tag || github.ref_name }}"
           if [ "${{ github.ref_type }}" != "tag" ] && [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
           gh release create "$TAG" dist/* --repo "${{ github.repository }}" \
-            --title "$TAG" --generate-notes $FLAGS
+            --title "$TAG" --target "${{ github.sha }}" --generate-notes $FLAGS
