@@ -45,3 +45,11 @@ def test_find_case_app_subfolders_and_parent(tmp_path):
     assert gui.find_case_app(caso) == exe  # pasta do caso
     assert gui.find_case_app(tmp_path) == exe  # pasta acima
     assert gui.find_case_app(caso / "iped") == exe  # subpasta iped -> pasta-mãe
+
+
+def test_chat_command_ferramentas_e_aviso_de_modelo_grande() -> None:
+    cmd = gui.chat_command("C:/iped", "C:/casos", sem_destrutivas=True, modelo="m", ferramentas="search,doc_info,xx")
+    assert cmd[cmd.index("--ferramentas") + 1] == "search,doc_info"
+    assert "--ferramentas" not in gui.chat_command("C:/iped", "C:/casos")
+    assert "8 GB" in gui.big_model_hint("qwen3.8:27b-ipediar8k")
+    assert gui.big_model_hint("qwen3:8b") == "" and gui.big_model_hint("llama3") == ""
