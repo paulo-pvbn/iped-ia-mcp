@@ -206,4 +206,30 @@ def test_provision_open_webui_against_fake_server():
     assert model["base_model_id"] == "qwen:7b" and model["meta"]["toolIds"] == ["server:mcp:iped"]
     assert model["params"]["system"] == "PROMPT" and model["params"]["function_calling"] == "native"
     assert model["params"]["num_ctx"] >= 16384
+    assert model["meta"]["capabilities"]["builtin_tools"] is False
+    flt = conn["config"]["function_name_filter_list"].split(",")
+    assert "list_sources" in flt and "!save_search" in flt
+    assert not any("remove" in f or "rename" in f or "delete" in f for f in flt)
     assert posts["/api/v1/configs/models"][2]["DEFAULT_MODELS"] == "analista-iped"
+
+
+def test_essential_tools_exist_in_server() -> None:
+    """Cada nome do filtro do Open WebUI casa com alguma tool real (evita filtro obsoleto após renomear)."""
+    import asyncio
+    import sys
+
+    from iped_mcp.webui_launcher import ESSENTIAL_TOOLS
+
+    root = str(Path(__file__).resolve().parent.parent)
+    sys.path.insert(0, root)
+    try:
+        import main as server  # noqa: PLC0415
+    finally:
+        sys.path.remove(root)
+    names = [t.name for t in asyncio.run(server.mcp.list_tools())]
+    allow = [f for f in ESSENTIAL_TOOLS.split(",") if not f.startswith("!")]
+    for f in allow:
+        assert any(n.endswith(f) for n in names), f
+    block = [f[1:] for f in ESSENTIAL_TOOLS.split(",") if f.startswith("!")]
+    kept = [n for n in names if any(n.endswith(a) for a in allow) and not any(n.endswith(b) for b in block)]
+    assert 15 <= len(kept) <= 25 and not any("remove" in n or "rename" in n or "delete" in n for n in kept)
