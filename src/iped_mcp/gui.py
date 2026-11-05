@@ -137,10 +137,12 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
         self.btn_webui = ttk.Button(bar, text="Instalar Open WebUI", command=self.install_webui)
         self.btn_find = ttk.Button(bar, text="Localizar Open WebUI", command=self.find_webui)
-        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_find, self.btn_webui):
+        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat):
             btn.pack(side="left", padx=4)
+        self.bar = bar
         self.destrutivas = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="Permitir remover marcadores", variable=self.destrutivas).pack(side="left", padx=12)
+        self.chk_destrutivas = ttk.Checkbutton(bar, text="Permitir remover marcadores", variable=self.destrutivas)
+        self.chk_destrutivas.pack(side="left", padx=12)
 
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
         self.progress.grid(row=4, column=0, columnspan=3, sticky="ew")
@@ -152,6 +154,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(150, self.drain)
         self.say("Pronto. Escolha a pasta do IPED, a ORIGEM e o DESTINO e clique em INDEXAR; "
                  "ou aponte o DESTINO para um caso já indexado e clique em Chat com IA.")  # fmt: skip
+        self.check_webui()
 
     @staticmethod
     def _version() -> str:
@@ -264,6 +267,23 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.messagebox.showerror(APP_TITLE, f"Não consegui abrir o caso: {exc}")
             return
         self.say(f"Abrindo caso: {app}")
+
+    def check_webui(self) -> None:
+        """Procura Open WebUI/Python em segundo plano; os botões Localizar/Instalar só aparecem se faltar."""
+
+        def work() -> None:
+            found = wl.running_open_webui(3000, 8080) or wl.find_open_webui_command()
+            if found:
+                self.say("Open WebUI encontrado neste computador: o Chat com IA o abre sozinho.")
+            else:
+                self.root.after(0, self.show_webui_buttons)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_webui_buttons(self) -> None:
+        self.say("Não achei o Open WebUI neste computador: use 'Localizar Open WebUI' (se já tiver) ou 'Instalar Open WebUI'.")
+        for btn in (self.btn_find, self.btn_webui):
+            btn.pack(side="left", padx=4, before=self.chk_destrutivas)
 
     def find_webui(self) -> None:
         """Aponta o open-webui(.exe) que o usuário já tem (guardado só como configuração do programa)."""
