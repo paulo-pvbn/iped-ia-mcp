@@ -48,3 +48,14 @@ def test_unique_ids_when_names_collide(tmp_path):
 def test_self_command_uses_script_when_not_frozen():
     cmd = launcher.self_command("mcp")
     assert cmd[0] == sys.executable and cmd[-2:] == ["--modo", "mcp"] and cmd[1].endswith("entry.py")
+
+
+def test_source_json_is_ascii_even_with_accents(tmp_path):
+    """O Java 11/Windows lê o arquivo em cp1252: o caminho com acento tem de ir como \\uXXXX."""
+    import json
+
+    text = json.dumps([{"id": "x", "path": "D:\\Pasta Exemplo\\Relatório"}], ensure_ascii=True)
+    assert text.isascii() and "\\u00f3" in text
+    assert json.loads(text)[0]["path"] == "D:\\Pasta Exemplo\\Relatório"
+    src = Path(__file__).resolve().parent.parent / "web-api-launcher.py"
+    assert "ensure_ascii=True" in src.read_text(encoding="utf-8")
