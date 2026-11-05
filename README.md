@@ -11,9 +11,6 @@ MCP server (FastMCP) para interagir com dados telemáticos indexados no IPED.
 >   token e escuta só em 127.0.0.1, auditoria em cadeia de hash, tools de remoção de marcadores sob controle
 >   (`IPED_MCP_ALLOW_DESTRUCTIVE`), prompt do analista, launcher, e o executável `iped-ia-mcp`
 >   (Windows e macOS, na aba Releases). Veja a seção "Open WebUI (fork…)" abaixo.
-> - **Não é o IPEDIAR_IA.** São projetos separados: o `IPEDIAR_IA` (repositório privado) é um orquestrador do IPED
->   com portal web de IA próprio, que processa e conversa sobre os casos. Este repositório é só a ponte MCP
->   (e o launcher) entre os casos do IPED e um chat externo (Open WebUI, Hermes, opencode).
 > - Para fazer o seu modelo conversar com os casos: use o executável deste repositório + Open WebUI + Ollama.
 
 - Endpoints IPED: variáveis de ambiente `IPED_ENDPOINTS` (múltiplos) ou

@@ -3,8 +3,8 @@
 - Token opcional (``IPED_MCP_TOKEN``): o cliente envia ``Authorization: Bearer <token>``.
 - Escuta só em loopback por padrão; fora dele exige token (``IPED_MCP_HOST``).
 - Tools que alteram ou apagam marcadores ficam DESLIGADAS por padrão (``IPED_MCP_ALLOW_DESTRUCTIVE=1`` liga).
-- Auditoria em cadeia de hash (JSONL), uma linha por chamada de tool (``IPED_MCP_AUDIT``). O formato é o mesmo
-  do IPEDIAR IA, então ``ipediar audit-verify <arquivo>`` ou ``python -m iped_mcp.security <arquivo>`` conferem.
+- Auditoria em cadeia de hash (JSONL), uma linha por chamada de tool (``IPED_MCP_AUDIT``). Confira com
+  ``python -m iped_mcp.security <arquivo>``.
 
 A auditoria registra QUAL consulta foi feita (nome da tool e argumentos), nunca o conteúdo devolvido.
 """
