@@ -48,13 +48,48 @@ def check_index_inputs(iped_root: str, origem: str, destino: str) -> str:
     return ""
 
 
+APP_NAMES = ("IPED-SearchApp.exe", "IPED-SearchApp")
+
+
 def case_app(destino: Path) -> Path | None:
-    """Executável do SearchApp dentro da pasta do caso, se existir."""
-    for name in ("IPED-SearchApp.exe", "IPED-SearchApp"):
+    """Executável do SearchApp diretamente dentro da pasta do caso, se existir."""
+    for name in APP_NAMES:
         candidate = destino / name
         if candidate.is_file():
             return candidate
     return None
+
+
+def find_case_app(folder: Path, depth: int = 2) -> Path | None:
+    """Procura o SearchApp na pasta, nas subpastas (até `depth` níveis) e na pasta-mãe.
+
+    Serve para caso já indexado: o usuário pode apontar a pasta do caso, a subpasta
+    `iped` ou a pasta acima dela.
+    """
+    folder = Path(folder)
+    if not folder.is_dir():
+        return None
+    level = [folder]
+    for _ in range(depth + 1):
+        nxt: list[Path] = []
+        for current in level:
+            found = case_app(current)
+            if found:
+                return found
+            try:
+                nxt.extend(sorted(c for c in current.iterdir() if c.is_dir()))
+            except OSError:
+                continue
+        level = nxt
+    return case_app(folder.parent) if folder.name.lower() == "iped" else None
+
+
+def launch_detached(app: Path) -> None:  # pragma: no cover - depende do SO
+    """Abre o SearchApp sem prender a janela; cwd = pasta do executável."""
+    if os.name == "nt":
+        os.startfile(str(app))  # noqa: S606
+    else:
+        subprocess.Popen([str(app)], cwd=str(app.parent), start_new_session=True)  # noqa: S603
 
 
 def chat_command(iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False) -> list[str]:
@@ -78,13 +113,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root = tk.Tk()
         self.root.title(f"{APP_TITLE} {self._version()}")
         self.root.geometry("1000x620")
-        cfg = wl.load_config()
-        self.vars = {
-            "iped": tk.StringVar(value=cfg.get("iped_root", "")),
-            "origem": tk.StringVar(value=cfg.get("origem", "")),
-            "destino": tk.StringVar(value=cfg.get("destino", "")),
-        }
-        self.multi_dir = cfg.get("cases_dir_multi", "")
+        # Cada usuário informa os seus caminhos: nada vem preenchido.
+        self.vars = {k: tk.StringVar(value="") for k in ("iped", "origem", "destino")}
+        self.multi_dir = ""
         self.index_proc: subprocess.Popen | None = None
         self.chat_proc: subprocess.Popen | None = None
         self.lines: queue.Queue[str] = queue.Queue()
@@ -147,10 +178,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(150, self.drain)
 
     def save(self) -> None:
-        cfg = wl.load_config()
-        cfg.update(iped_root=self.vars["iped"].get(), origem=self.vars["origem"].get(),
-                   destino=self.vars["destino"].get(), cases_dir_multi=self.multi_dir)  # fmt: skip
-        wl.save_config(cfg)
+        """Caminhos pessoais não são gravados em disco (cada usuário informa os seus)."""
 
     def pick(self, key: str) -> None:
         if key == "origem":  # imagem (arquivo) ou pasta: pergunta primeiro pelo arquivo
@@ -218,12 +246,26 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.say("Indexação cancelada.")
 
     def open_case(self) -> None:
-        destino = Path(self.vars["destino"].get().strip() or ".")
-        app = case_app(destino)
+        """Abre um caso já indexado: usa o DESTINO ou pede a pasta do caso."""
+        typed = self.vars["destino"].get().strip()
+        app = find_case_app(Path(typed)) if typed else None
         if app is None:
-            self.messagebox.showinfo(APP_TITLE, "Não achei o IPED-SearchApp na pasta DESTINO (o caso já foi indexado?).")
+            chosen = self.filedialog.askdirectory(title="Abrir caso indexado: escolha a pasta do caso")
+            if not chosen:
+                return
+            app = find_case_app(Path(chosen))
+            if app is None:
+                self.messagebox.showinfo(
+                    APP_TITLE, f"Não achei o IPED-SearchApp em:\n{chosen}\n\nEscolha a pasta de saída (-o) do caso indexado."
+                )
+                return
+            self.vars["destino"].set(str(app.parent.parent if app.parent.name.lower() == "iped" else app.parent))
+        try:
+            launch_detached(app)
+        except OSError as exc:
+            self.messagebox.showerror(APP_TITLE, f"Não consegui abrir o caso: {exc}")
             return
-        subprocess.Popen([str(app)], cwd=str(destino))  # noqa: S603
+        self.say(f"Abrindo caso: {app}")
 
     def toggle_chat(self) -> None:
         if self.chat_proc is not None:
@@ -233,10 +275,15 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.say("Chat com IA encerrado.")
             return
         iped = self.vars["iped"].get().strip()
-        cases = self.multi_dir or self.vars["destino"].get().strip()
-        if not iped or not cases:
-            self.messagebox.showwarning(APP_TITLE, "Informe a pasta do IPED e o DESTINO (caso indexado) ou use Multicasos…")
+        if not iped:
+            self.messagebox.showwarning(APP_TITLE, "Informe a pasta do IPED.")
             return
+        cases = self.multi_dir or self.vars["destino"].get().strip()
+        if not cases:
+            cases = self.filedialog.askdirectory(title="Chat com IA: pasta do caso indexado (ou pasta com vários casos)")
+            if not cases:
+                return
+            self.multi_dir = cases
         self.save()
         env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
         self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=not self.destrutivas.get()), env=env)
