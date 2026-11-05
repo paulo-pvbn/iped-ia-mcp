@@ -186,6 +186,24 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             print("ERRO: não consegui ler as URLs impressas pelo web-api-launcher.py.", file=sys.stderr)
             return 1
 
+        alive = {}
+        for sid, url in endpoints.items():
+            host_port = url.split("//", 1)[-1].split("/", 1)[0]
+            host, _, port = host_port.partition(":")
+            for _ in range(60):  # até ~1 min para o IPED abrir o caso
+                if launcher.poll() is not None or port_open(host, int(port or 80)):
+                    break
+                time.sleep(1)
+            if port_open(host, int(port or 80)):
+                alive[sid] = url
+        if not alive:
+            print("ERRO: nenhuma Web API do IPED respondeu. Veja a mensagem de erro do Java acima "
+                  "(caminho do caso, versão do Java, caso indexado com o IPED 4.x).", file=sys.stderr)  # fmt: skip
+            return 1
+        if len(alive) < len(endpoints):
+            print("AVISO: algumas Web APIs não responderam: " + ", ".join(set(endpoints) - set(alive)), file=sys.stderr)
+        endpoints = alive
+
         token = "" if args.no_token else secrets.token_urlsafe(24)
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
         if args.sem_destrutivas:
