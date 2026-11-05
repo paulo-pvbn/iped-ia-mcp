@@ -16,6 +16,7 @@ import sys
 import threading
 from pathlib import Path
 
+from iped_mcp import tools_catalog as tc
 from iped_mcp import webui_launcher as wl
 
 APP_TITLE = "IPED-IA MCP"
@@ -101,10 +102,26 @@ def ollama_models(url: str = "http://127.0.0.1:11434") -> list[str]:
         return []
 
 
-def chat_command(iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "") -> list[str]:
+def big_model_hint(modelo: str) -> str:
+    """Aviso quando o modelo é grande para uma GPU de 8 GB (quantização padrão: ~0,6 GB por bilhão de parâmetros)."""
+    import re as _re
+
+    match = _re.search(r"(\d+(?:\.\d+)?)\s*b\b", modelo.lower())
+    if match and float(match.group(1)) > 9:
+        return (f"Aviso: '{modelo}' é um modelo grande; em GPU de 8 GB ele não cabe inteiro e fica lento (parte vai para a CPU). "
+                "Modelos de 4B a 8B (ex.: qwen3:8b) respondem bem mais rápido.")
+    return ""
+
+
+def chat_command(
+    iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "", ferramentas: object = None
+) -> list[str]:
     cmd = [*wl.self_command("iniciar"), "--root", iped_root, "--cases-dir", cases_dir]
     if modelo:
         cmd += ["--modelo", modelo]
+    chosen = tc.normalize(ferramentas) if ferramentas else []
+    if chosen:
+        cmd += ["--ferramentas", ",".join(chosen)]
     if sem_destrutivas:
         cmd.append("--sem-destrutivas")
     return cmd
@@ -152,7 +169,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_open = ttk.Button(bar, text="Abrir caso", command=self.open_case)
         self.btn_multi = ttk.Button(bar, text="Multicasos...", command=self.pick_multi)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
-        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat):
+        self.btn_tools = ttk.Button(bar, text="Ferramentas da IA...", command=self.pick_tools)
+        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_tools):
             btn.pack(side="left", padx=4)
         self.bar = bar
 
@@ -202,6 +220,81 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     def save(self) -> None:
         """Caminhos pessoais não são gravados em disco (cada usuário informa os seus)."""
+
+    def chosen_tools(self) -> list[str]:
+        saved = wl.load_config().get("ferramentas", "")
+        return tc.normalize(saved) if saved else list(tc.DEFAULT)
+
+    def pick_tools(self) -> None:
+        """Janela para ligar/desligar cada ferramenta do IPED que o modelo enxerga (vale no próximo Chat com IA)."""
+        tk = self.tk
+        from tkinter import ttk
+
+        win = tk.Toplevel(self.root)
+        win.title("Ferramentas da IA")
+        win.geometry("640x640")
+        win.transient(self.root)
+        current = set(self.chosen_tools())
+        vars_: dict[str, tk.BooleanVar] = {}
+        total = tk.StringVar()
+
+        def refresh(*_a: object) -> None:
+            sel = [n for n, v in vars_.items() if v.get()]
+            tok = tc.tokens(sel)
+            warn = "  ⚠ muitas: modelos pequenos erram e o contexto aperta" if tok > tc.TOKEN_WARN else ""
+            total.set(f"{len(sel)} de {len(tc.NAMES)} ligadas — cerca de {tok} tokens de contexto{warn}")
+
+        top = ttk.Frame(win, padding=8)
+        top.pack(fill="x")
+        ttk.Label(
+            top,
+            text="Cada ferramenta ligada ocupa contexto do modelo. Em GPU de 8 GB, menos é melhor.\n"
+            "A mudança vale na próxima vez que você clicar em Chat com IA.",
+            justify="left",
+        ).pack(anchor="w")
+        ttk.Label(top, textvariable=total, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(6, 0))
+
+        canvas = tk.Canvas(win, highlightthickness=0)
+        scroll = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas, padding=8)
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+
+        group = ""
+        for name, grp, tok, desc, _on in tc.CATALOG:
+            if grp != group:
+                group = grp
+                ttk.Label(inner, text=grp, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 0))
+            var = tk.BooleanVar(value=name in current)
+            var.trace_add("write", refresh)
+            vars_[name] = var
+            ttk.Checkbutton(inner, text=f"{name}  (~{tok})  —  {desc}", variable=var).pack(anchor="w")
+        refresh()
+
+        def setall(names: object) -> None:
+            chosen = set(names)  # type: ignore[arg-type]
+            for n, v in vars_.items():
+                v.set(n in chosen)
+
+        def save_and_close() -> None:
+            cfg = wl.load_config()
+            cfg["ferramentas"] = ",".join(n for n, v in vars_.items() if v.get())
+            wl.save_config(cfg)
+            canvas.unbind_all("<MouseWheel>")
+            win.destroy()
+            self.say("Ferramentas da IA salvas. Valem na próxima vez que você clicar em Chat com IA"
+                     + (" (pare e inicie o chat de novo)." if self.chat_proc is not None else "."))
+
+        bottom = ttk.Frame(win, padding=8)
+        bottom.pack(side="bottom", fill="x")
+        ttk.Button(bottom, text="Essenciais", command=lambda: setall(tc.DEFAULT)).pack(side="left", padx=2)
+        ttk.Button(bottom, text="Todas", command=lambda: setall(tc.NAMES)).pack(side="left", padx=2)
+        ttk.Button(bottom, text="Salvar", command=save_and_close).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Cancelar", command=win.destroy).pack(side="right", padx=2)
 
     def pick(self, key: str) -> None:
         if key == "origem":  # imagem (arquivo) ou pasta: pergunta primeiro pelo arquivo
@@ -367,7 +460,14 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             cfg = wl.load_config()
             cfg["modelo"] = self.modelo.get().strip()
             wl.save_config(cfg)
-            self.chat_proc = self.run_proc(chat_command(iped, cases, sem_destrutivas=True, modelo=cfg["modelo"]), env=env)
+            tools = self.chosen_tools()
+            self.chat_proc = self.run_proc(
+                chat_command(iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools), env=env
+            )
+            self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto). Botão 'Ferramentas da IA...' para mudar.")
+            hint = big_model_hint(cfg["modelo"])
+            if hint:
+                self.say(hint)
             self.btn_chat.configure(text="Parar chat", state="normal")
             self.say("Subindo Web APIs + MCP + Open WebUI… as instruções de conexão aparecem aqui em instantes.")
 

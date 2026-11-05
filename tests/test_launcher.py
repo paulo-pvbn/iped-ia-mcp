@@ -208,17 +208,14 @@ def test_provision_open_webui_against_fake_server():
     assert model["params"]["num_ctx"] >= 16384
     assert model["meta"]["capabilities"]["builtin_tools"] is False
     flt = conn["config"]["function_name_filter_list"].split(",")
-    assert "list_sources" in flt and "!save_search" in flt
+    assert "list_sources" in flt and "!bookmarks_save_search" in flt
     assert not any("remove" in f or "rename" in f or "delete" in f for f in flt)
     assert posts["/api/v1/configs/models"][2]["DEFAULT_MODELS"] == "analista-iped"
 
 
-def test_essential_tools_exist_in_server() -> None:
-    """Cada nome do filtro do Open WebUI casa com alguma tool real (evita filtro obsoleto após renomear)."""
+def _server_names() -> list[str]:
     import asyncio
     import sys
-
-    from iped_mcp.webui_launcher import ESSENTIAL_TOOLS
 
     root = str(Path(__file__).resolve().parent.parent)
     sys.path.insert(0, root)
@@ -226,10 +223,32 @@ def test_essential_tools_exist_in_server() -> None:
         import main as server  # noqa: PLC0415
     finally:
         sys.path.remove(root)
-    names = [t.name for t in asyncio.run(server.mcp.list_tools())]
-    allow = [f for f in ESSENTIAL_TOOLS.split(",") if not f.startswith("!")]
-    for f in allow:
-        assert any(n.endswith(f) for n in names), f
-    block = [f[1:] for f in ESSENTIAL_TOOLS.split(",") if f.startswith("!")]
-    kept = [n for n in names if any(n.endswith(a) for a in allow) and not any(n.endswith(b) for b in block)]
-    assert 15 <= len(kept) <= 25 and not any("remove" in n or "rename" in n or "delete" in n for n in kept)
+    return [t.name for t in asyncio.run(server.mcp.list_tools())]
+
+
+def _effective(filter_text: str, names: list[str]) -> set[str]:
+    """Mesma regra do Open WebUI (sufixo; '!' bloqueia)."""
+    items = filter_text.split(",")
+    allow = [i for i in items if not i.startswith("!")]
+    block = [i[1:] for i in items if i.startswith("!")]
+    return {n for n in names if any(n.endswith(a) for a in allow) and not any(n.endswith(b) for b in block)}
+
+
+def test_catalog_matches_server_and_filter_is_exact() -> None:
+    import random
+
+    from iped_mcp import tools_catalog as tc
+
+    names = _server_names()
+    assert sorted(names) == sorted(tc.NAMES)  # catálogo sincronizado com o servidor
+    assert set(tc.DEFAULT) <= set(names)
+    assert not any(x in n for n in names for x in ("remove", "rename", "delete"))
+    assert _effective(tc.build_filter(tc.DEFAULT), names) == set(tc.DEFAULT)
+    assert _effective(tc.build_filter(tc.NAMES), names) == set(names)
+    rnd = random.Random(7)
+    for _ in range(60):
+        pick = rnd.sample(names, rnd.randint(1, len(names)))
+        assert _effective(tc.build_filter(pick, names), names) == set(pick)
+    assert _effective(tc.build_filter([], names), names) == set()
+    assert tc.tokens(tc.NAMES) > tc.tokens(tc.DEFAULT) > 0
+    assert tc.normalize("search, doc_info ,inexistente,search") == ["search", "doc_info"]

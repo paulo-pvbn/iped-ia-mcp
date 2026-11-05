@@ -35,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--webui-port", type=int, default=3737, help="porta própria: outra origem evita cache/sessão de outros apps em localhost:3000")
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     ap.add_argument("--modelo", default="", help="modelo do Ollama usado no 'Analista IPED' (padrão: o primeiro encontrado)")
+    ap.add_argument("--ferramentas", default="", help="ferramentas do IPED mostradas ao modelo no Open WebUI, separadas por vírgula (padrão: as essenciais)")
     ap.add_argument("--no-webui", action="store_true")
     ap.add_argument("--no-token", action="store_true")
     ap.add_argument("--sem-destrutivas", action="store_true", help="(já é o padrão) tools que removem/renomeiam/apagam marcadores ficam sempre desligadas")
