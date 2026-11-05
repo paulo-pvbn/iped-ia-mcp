@@ -162,11 +162,22 @@ Este fork acrescenta, **sem alterar as tools originais**:
   ok/erro, duração), sem o conteúdo devolvido. Confira com `python -m iped_mcp.security`.
 - **Prompt do analista** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): cole nas
   instruções do modelo no Open WebUI.
-- **Launcher** `iniciar-webui.py`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o Open WebUI.
+- **Launcher / executável** `iped-ia-mcp.exe`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o
+  Open WebUI (se instalado). Sem argumentos abre janelas para escolher a pasta do IPED e a pasta dos casos
+  (lembra da escolha em `%APPDATA%\iped-ia-mcp\config.json`).
 
 ```bash
-python iniciar-webui.py --root "C:\CIAF\IPED431\iped-4.3.1" --sources multicases.json
+# executável (baixe em Releases; gerado pelo workflow "Release (executável Windows)")
+iped-ia-mcp.exe
+iped-ia-mcp.exe --root "C:\CIAF\IPED431\iped-4.3.1" --cases-dir "D:\casos"
+iped-ia-mcp.exe --modo verificar          # confere a cadeia de hash da auditoria
+# a partir do código
+python scripts/entry.py --root "C:\CIAF\IPED431\iped-4.3.1" --sources multicases.json
 ```
+
+Executáveis gerados no GitHub Actions (PyInstaller) para Windows (`.exe`) e macOS (Apple Silicon e Intel, `.tar.gz`); **não são assinados**: confira o `.sha256` da release. No macOS: `tar -xzf` e, se o Gatekeeper bloquear, `xattr -d com.apple.quarantine ./iped-ia-mcp` (ou botão direito → Abrir). Os executáveis de macOS ainda não foram testados em um Mac.
+O IPED (Java) **não** vai dentro dele; aponte a pasta do IPED. O Open WebUI também não: `pip install open-webui`
+(Python 3.11) ou Docker.
 
 No Open WebUI (v0.6.31+): Admin Settings → External Tools → **+** → **MCP (Streamable HTTP)** → URL
 `http://127.0.0.1:8000/mcp` e o token mostrado pelo launcher. No modelo: contexto de 16k ou mais e raciocínio
