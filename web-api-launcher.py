@@ -253,7 +253,7 @@ def main() -> int:
 
             single_source = temp_dir / f"source-{index}.json"
             single_source.write_text(
-                json.dumps([source], ensure_ascii=False, indent=2), encoding="utf-8"
+                json.dumps([source], ensure_ascii=True, indent=2), encoding="utf-8"  # ASCII: o Java 11/Windows le com cp1252
             )
 
             command = [
