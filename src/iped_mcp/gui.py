@@ -375,7 +375,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.say("Procurando o Open WebUI neste computador…")
 
         def check() -> None:
-            found = wl.running_open_webui(3000, 8080) or wl.find_open_webui_command()
+            found = wl.running_open_webui(3737) or wl.find_open_webui_command()
 
             def after() -> None:
                 self.btn_chat.configure(state="normal")

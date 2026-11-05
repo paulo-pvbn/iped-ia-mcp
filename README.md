@@ -214,3 +214,7 @@ O **Chat com IA** sobe o Open WebUI **sem tela de login, só em `127.0.0.1`** (d
 cadastra sozinho o servidor MCP do IPED (URL e token da execução), cria o modelo **Analista IPED** (sobre o modelo do
 Ollama escolhido na janela, com o prompt do analista e as ferramentas do IPED já ligadas) e abre o navegador. Validado
 contra o Open WebUI 0.13; versões muito diferentes podem exigir cadastro manual (o programa avisa).
+
+O Open WebUI do programa usa a porta **3737** (e não a 3000): outro endereço evita que o navegador reaproveite páginas,
+sessões ou *service workers* de outros programas que já usaram `localhost:3000` (causa comum da tela
+"Backend Open WebUI necessário").
