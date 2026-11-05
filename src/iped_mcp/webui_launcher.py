@@ -23,6 +23,8 @@ import threading
 import time
 from pathlib import Path
 
+from iped_mcp.tools_catalog import DEFAULT, build_filter, normalize
+
 ENDPOINT_RE = re.compile(r"^-\s+(?P<id>.+?):\s+(?P<url>https?://\S+?)/?\s+\(PID\s+\d+\)")
 READY_MARK = "SERVIDORES IPED INICIADOS"
 WEBAPI_PORT = 1234  # primeira porta tentada pelo web-api-launcher.py (padrão dele)
@@ -275,18 +277,11 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 # As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
 # (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
 NUM_CTX = 16384
-# O Open WebUI compara com o FIM do nome (sufixo). Só estas ferramentas vão ao modelo: as 33 gastam
-# ~9k tokens de contexto e confundem modelos locais (ele chegava a dizer que não tinha ferramentas).
-# '!save_search' bloqueia bookmarks_save_search, que também termina em 'search'.
-ESSENTIAL_TOOLS = (
-    "list_sources,search,doc_info,doc_text,get_document,regex_list_types,regex_stats,regex_top_values,"
-    "regex_value_docs,ufed_device_info,ufed_list_fields,ufed_search,whatsapp_overview,whatsapp_account,"
-    "whatsapp_conversation,whatsapp_text_search,whatsapp_reference,bookmarks_list,bookmarks_create,"
-    "bookmarks_add,bookmarks_docs,!save_search"
-)
 
 
-def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "") -> tuple[bool, str]:
+def provision_open_webui(
+    base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None
+) -> tuple[bool, str]:
     """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
 
     Só funciona em Open WebUI iniciado sem login por este programa. Devolve (ok, mensagem).
@@ -305,7 +300,7 @@ def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_pro
             "type": "mcp",
             "auth_type": "bearer" if mcp_token else "none",
             "key": mcp_token or "",
-            "config": {"enable": True, "access_control": None, "function_name_filter_list": ESSENTIAL_TOOLS},
+            "config": {"enable": True, "access_control": None, "function_name_filter_list": build_filter(tools or DEFAULT)},
             "info": {"id": MCP_ID, "name": "IPED", "description": "Casos do IPED (somente leitura)"},
         }
         _api("POST", f"{base}/api/v1/configs/tool_servers", {"TOOL_SERVER_CONNECTIONS": [connection]}, token)
@@ -671,6 +666,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "mcp_token": token or "",
             "system_prompt": prompt_text,
             "model": getattr(args, "modelo", "") or "",
+            "tools": normalize(getattr(args, "ferramentas", "") or "") or list(DEFAULT),
         }
         if not args.no_webui:
             running = running_open_webui(args.webui_port)
