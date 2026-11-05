@@ -255,21 +255,101 @@ def find_python_311() -> list[str] | None:
     return None
 
 
-def open_browser_when_ready(url: str, port: int | None) -> None:
-    """Abre o navegador no Open WebUI assim que ele responder (em segundo plano)."""
+ADMIN_EMAIL, ADMIN_PASSWORD = "admin@localhost", "admin"  # conta do modo sem login (WEBUI_AUTH=False) do Open WebUI
+PRESET_ID, MCP_ID = "analista-iped", "iped"
+
+
+def _api(method: str, url: str, body: object = None, token: str | None = None, timeout: int = 60):
+    import urllib.request
+
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)  # noqa: S310
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        raw = resp.read()
+    return json.loads(raw) if raw else None
+
+
+def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "") -> tuple[bool, str]:
+    """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
+
+    Só funciona em Open WebUI iniciado sem login por este programa. Devolve (ok, mensagem).
+    """
+    import urllib.error
+
+    base = base_url.rstrip("/")
+    try:
+        token = _api("POST", f"{base}/api/v1/auths/signin", {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})["token"]
+    except Exception as exc:  # noqa: BLE001
+        return False, f"não consegui entrar no Open WebUI sem login ({exc}); ele já tinha contas?"
+    try:
+        connection = {
+            "url": mcp_url,
+            "path": "",
+            "type": "mcp",
+            "auth_type": "bearer" if mcp_token else "none",
+            "key": mcp_token or "",
+            "config": {"enable": True, "access_control": None},
+            "info": {"id": MCP_ID, "name": "IPED", "description": "Casos do IPED (somente leitura)"},
+        }
+        _api("POST", f"{base}/api/v1/configs/tool_servers", {"TOOL_SERVER_CONNECTIONS": [connection]}, token)
+        listed = _api("GET", f"{base}/api/models", None, token)
+        items = listed.get("data", []) if isinstance(listed, dict) else (listed or [])
+        bases = [m for m in items if not m.get("preset") and m.get("id") != PRESET_ID]
+        chosen = next((m for m in bases if model and m.get("id") == model), None)
+        chosen = chosen or next((m for m in bases if m.get("owned_by") == "ollama"), None) or (bases[0] if bases else None)
+        if chosen is None:
+            return False, "o Open WebUI não lista nenhum modelo (o Ollama está aberto e tem modelo baixado?)"
+        form = {
+            "id": PRESET_ID,
+            "base_model_id": chosen["id"],
+            "name": "Analista IPED",
+            "meta": {"description": "Analista forense com as ferramentas do IPED", "toolIds": [f"server:mcp:{MCP_ID}"]},
+            "params": {"system": system_prompt, "function_calling": "native"},
+            "is_active": True,
+        }
+        try:
+            _api("POST", f"{base}/api/v1/models/create", form, token)
+        except urllib.error.HTTPError:  # já existe: atualiza (token e porta mudam a cada execução)
+            _api("POST", f"{base}/api/v1/models/model/update", form, token)
+        try:
+            _api("POST", f"{base}/api/v1/configs/models", {"DEFAULT_MODELS": PRESET_ID, "DEFAULT_PINNED_MODELS": None, "MODEL_ORDER_LIST": None}, token)
+        except Exception:  # noqa: BLE001, S110  (só deixa como modelo inicial; não é essencial)
+            pass
+        return True, f"modelo 'Analista IPED' criado sobre {chosen['id']}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"falha ao configurar o Open WebUI ({exc})"
+
+
+def finish_open_webui(url: str, port: int | None, setup: dict | None) -> None:
+    """Em segundo plano: espera o Open WebUI responder, configura o IPED nele e abre o navegador."""
 
     def work() -> None:
         start = time.monotonic()
         deadline = start + 900
         last = start
-        while port is not None and not port_open("127.0.0.1", port):
+        while port is not None and not _healthy(url):
             if time.monotonic() > deadline:
                 say("O Open WebUI não respondeu em 15 min; veja o log em " + str(OPENWEBUI_HOME / "open-webui.log"), err=True)
                 return
             if time.monotonic() - last > 20:
                 last = time.monotonic()
-                say(f"   Open WebUI ainda iniciando ({last - start:.0f}s): na primeira vez ele baixa um modelo; não está travado.")
+                say(f"   Open WebUI ainda iniciando ({last - start:.0f}s); não está travado.")
             time.sleep(2)
+        if setup:
+            ok, msg = False, ""
+            for attempt in range(4):  # logo após subir o banco ainda pode estar inicializando
+                ok, msg = provision_open_webui(url, **setup)
+                if ok:
+                    break
+                time.sleep(5 * (attempt + 1))
+            if ok:
+                say(f"Open WebUI configurado: {msg}. É só conversar; as ferramentas do IPED já estão ligadas.")
+            else:
+                say(f"AVISO: {msg}.", err=True)
+                say("Cadastre à mão: Configurações > Admin > Integrações > Servidores de Ferramentas > + (MCP, URL e token acima).")
         try:
             import webbrowser
 
@@ -278,6 +358,13 @@ def open_browser_when_ready(url: str, port: int | None) -> None:
             pass
 
     threading.Thread(target=work, daemon=True).start()
+
+
+def _healthy(url: str) -> bool:
+    try:
+        return bool(_api("GET", url.rstrip("/") + "/health", None, None, 5))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def running_open_webui(*ports: int) -> str | None:
@@ -547,17 +634,24 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
         webui_url = f"http://127.0.0.1:{args.webui_port}"
+        prompt_text = (ROOT / "prompts" / "analista.md").read_text(encoding="utf-8") if (ROOT / "prompts" / "analista.md").is_file() else ""
+        setup = {
+            "mcp_url": f"http://127.0.0.1:{args.mcp_port}/mcp",
+            "mcp_token": token or "",
+            "system_prompt": prompt_text,
+            "model": getattr(args, "modelo", "") or "",
+        }
         if not args.no_webui:
             running = running_open_webui(args.webui_port, 8080)
             webui_cmd = None if running else find_open_webui_command()
             if running:
                 say(f"[3/3] Open WebUI já está aberto em {running}; usando esse.")
                 webui_url = running
-                open_browser_when_ready(running, None)
+                finish_open_webui(running, None, setup)
             elif webui_cmd:
                 say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
-                wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
+                wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data-local"), WEBUI_AUTH="False")  # sem login: só 127.0.0.1
                 # Busca em documentos (RAG) do Open WebUI usaria um modelo local baixado do HuggingFace; aponta para o Ollama
                 # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
                 wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
@@ -567,10 +661,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")
                 procs.append(
                     subprocess.Popen(  # noqa: S603
-                        [*webui_cmd, "serve", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
+                        [*webui_cmd, "serve", "--host", "127.0.0.1", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
                     )
                 )
-                open_browser_when_ready(webui_url, args.webui_port)
+                finish_open_webui(webui_url, args.webui_port, setup)
             else:
                 say("[3/3] Não achei o Open WebUI neste computador. Pythons encontrados:")
                 for py in python_candidates() or []:
@@ -582,7 +676,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"MCP:        http://127.0.0.1:{args.mcp_port}/mcp")
         say(f"Token:      {token or '(sem token)'}  -> Authorization: Bearer <token>")
         say(f"Open WebUI: {webui_url}")
-        say("No Open WebUI: Admin Settings > External Tools > + > MCP (Streamable HTTP) > URL e token acima.")
+        say("O Open WebUI abre sozinho já configurado (modelo 'Analista IPED'); se a configuração automática falhar, aparece um aviso.")
         say(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
         say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
         say("Ctrl+C encerra tudo.")
