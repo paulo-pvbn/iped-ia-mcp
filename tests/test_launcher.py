@@ -86,3 +86,13 @@ def test_find_open_webui_prefers_managed_venv(tmp_path, monkeypatch):
     monkeypatch.setattr(launcher, "OPENWEBUI_EXE", tmp_path / "nao-existe")
     monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
     assert launcher.find_open_webui() is None
+
+
+def test_free_port_skips_busy_port():
+    import socket
+
+    with socket.socket() as srv:
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        busy = srv.getsockname()[1]
+        assert launcher.free_port(busy) != busy
