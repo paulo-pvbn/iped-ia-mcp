@@ -82,6 +82,14 @@ def sources_from_cases_dir(cases_dir: Path) -> list[dict[str, str]]:
     return out
 
 
+def free_port(preferred: int, host: str = "127.0.0.1", tries: int = 50) -> int:
+    """Primeira porta livre a partir de `preferred` (sobra de execução anterior ocupa a porta padrão)."""
+    for port in range(preferred, preferred + tries):
+        if not port_open(host, port):
+            return port
+    return preferred
+
+
 def port_open(host: str, port: int) -> bool:
     try:
         with socket.create_connection((host, port), timeout=0.5):
@@ -315,6 +323,11 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say("   Web API(s) no ar: " + ", ".join(f"{sid} -> {url}" for sid, url in endpoints.items()))
 
         token = "" if args.no_token else secrets.token_urlsafe(24)
+        wanted = args.mcp_port
+        args.mcp_port = free_port(wanted)
+        if args.mcp_port != wanted:
+            say(f"AVISO: a porta {wanted} já está em uso (execução anterior ainda aberta?); usando {args.mcp_port}.")
+        args.webui_port = free_port(args.webui_port)
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
         if args.sem_destrutivas:
             env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)

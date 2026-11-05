@@ -154,13 +154,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     @staticmethod
     def _version() -> str:
-        try:
-            sys.path.insert(0, str(wl.ROOT / "scripts"))
-            import entry  # type: ignore
+        from iped_mcp.version import VERSION
 
-            return entry.VERSION
-        except Exception:  # noqa: BLE001
-            return ""
+        return VERSION
 
     # ---- util
     def say(self, text: str) -> None:

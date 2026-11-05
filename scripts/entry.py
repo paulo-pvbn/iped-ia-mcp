@@ -20,7 +20,7 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-VERSION = "0.3.4"
+from iped_mcp.version import VERSION  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +105,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"ERRO inesperado: {exc!r}", file=sys.stderr)
     if code != 0 and sys.stdin and sys.stdin.isatty():  # não fechar a janela antes de ler o erro
-        input("\nPressione Enter para fechar…")
+        try:  # no Windows o NUL também parece um terminal: sem stdin real, input() dá EOFError
+            input("\nPressione Enter para fechar…")
+        except (EOFError, OSError):
+            pass
     return code
 
 
