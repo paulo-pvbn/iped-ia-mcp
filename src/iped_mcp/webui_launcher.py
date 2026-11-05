@@ -123,11 +123,56 @@ OPENWEBUI_HOME = CONFIG_PATH.parent / "openwebui"  # venv gerenciada + dados do 
 OPENWEBUI_EXE = OPENWEBUI_HOME / "venv" / ("Scripts/open-webui.exe" if os.name == "nt" else "bin/open-webui")
 
 
+def _known_webui_exes() -> list[Path]:
+    """Locais comuns do open-webui(.exe): Python do usuário, pip --user, conda e venvs na pasta pessoal."""
+    sub = "Scripts/open-webui.exe" if os.name == "nt" else "bin/open-webui"
+    home = Path.home()
+    roots = [
+        Path(os.environ.get("LOCALAPPDATA", home / "AppData/Local")) / "Programs/Python",
+        Path(os.environ.get("APPDATA", home / "AppData/Roaming")) / "Python",
+    ]
+    found: list[Path] = []
+    for root in roots:
+        found += sorted(root.glob(f"Python3*/{sub}"))
+    for conda in ("anaconda3", "miniconda3", "miniforge3", "mambaforge"):
+        found.append(home / conda / sub)
+        found += sorted((home / conda / "envs").glob(f"*/{sub}"))
+    for venv in (".venv", "venv", "open-webui", "openwebui", "env"):
+        found.append(home / venv / sub)
+    return found
+
+
 def find_open_webui() -> str | None:
-    """Open WebUI instalado pelo botão do programa ou já presente no PATH."""
+    """Executável do Open WebUI: escolhido pelo usuário, instalado pelo botão, no PATH ou em locais comuns."""
+    chosen = load_config().get("openwebui_exe", "")
+    if chosen and Path(chosen).is_file():
+        return chosen
     if OPENWEBUI_EXE.is_file():
         return str(OPENWEBUI_EXE)
-    return shutil.which("open-webui")
+    on_path = shutil.which("open-webui")
+    if on_path:
+        return on_path
+    for candidate in _known_webui_exes():
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def find_open_webui_command() -> list[str] | None:
+    """Comando para subir o Open WebUI: o executável ou, se só o módulo estiver instalado, `python -m open_webui`."""
+    exe = find_open_webui()
+    if exe:
+        return [exe]
+    probe = "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('open_webui') else 1)"
+    for py in (["py", "-3.11"], ["py", "-3.12"], ["py"], ["python"], ["python3"]):
+        if not shutil.which(py[0]):
+            continue
+        try:
+            if subprocess.run([*py, "-c", probe], capture_output=True, timeout=30).returncode == 0:  # noqa: S603
+                return [*py, "-m", "open_webui"]
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return None
 
 
 def find_python_311() -> list[str] | None:
@@ -327,7 +372,6 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         args.mcp_port = free_port(wanted)
         if args.mcp_port != wanted:
             say(f"AVISO: a porta {wanted} já está em uso (execução anterior ainda aberta?); usando {args.mcp_port}.")
-        args.webui_port = free_port(args.webui_port)
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
         if args.sem_destrutivas:
             env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)
@@ -349,16 +393,18 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
         if not args.no_webui:
-            exe = find_open_webui()
-            if exe:
-                say("[3/3] Subindo o Open WebUI (a primeira vez demora)…")
+            webui_cmd = find_open_webui_command()
+            if port_open("127.0.0.1", args.webui_port):
+                say(f"[3/3] Já existe algo respondendo na porta {args.webui_port} (Open WebUI aberto?); usando esse.")
+            elif webui_cmd:
+                say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
                 wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data"))
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
-                procs.append(subprocess.Popen([exe, "serve", "--port", str(args.webui_port)], env=wenv))  # noqa: S603
+                procs.append(subprocess.Popen([*webui_cmd, "serve", "--port", str(args.webui_port)], env=wenv))  # noqa: S603
             else:
-                say("[3/3] Open WebUI não instalado: clique em 'Instalar Open WebUI' na janela")
-                say("      (precisa de Python 3.11) ou use Docker apontando para este MCP.")
+                say("[3/3] Não achei o Open WebUI: use 'Localizar Open WebUI' na janela para apontar o open-webui.exe,")
+                say("      ou 'Instalar Open WebUI' (precisa de Python 3.11), ou suba o seu e aponte para este MCP.")
 
         prompt_file = ROOT / "prompts" / "analista.md"
         say("\n=== PRONTO ===")
