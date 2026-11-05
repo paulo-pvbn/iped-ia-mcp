@@ -20,12 +20,12 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-VERSION = "0.2.3"
+VERSION = "0.3.0"
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--modo", choices=["iniciar", "mcp", "webapi", "verificar"], default="iniciar")
+    ap.add_argument("--modo", choices=["gui", "iniciar", "mcp", "webapi", "verificar"], default=None)
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--root", help="pasta do IPED (com jre/ e lib/iped-webapi.jar)")
@@ -38,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-token", action="store_true")
     ap.add_argument("--sem-destrutivas", action="store_true", help="desliga remover/renomear/apagar marcadores")
     args, rest = ap.parse_known_args(argv)
+    if args.modo is None:  # sem argumentos (duplo clique) abre a janela; com argumentos, o modo de console
+        args.modo = "gui" if not (argv if argv is not None else sys.argv[1:]) else "iniciar"
 
     if args.version:
         print(f"iped-ia-mcp {VERSION}")
@@ -48,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
         tools = asyncio.run(server.mcp.list_tools())
         prompt = HERE / "prompts" / "analista.md"
         ok = len(tools) >= 30 and prompt.is_file() and (HERE / "web-api-launcher.py").is_file()
+        from iped_mcp import gui  # noqa: F401  (a janela é importável)
+
+        if sys.platform in ("win32", "darwin"):
+            import tkinter  # noqa: F401  (tem de estar empacotado)
         print(f"selftest {'ok' if ok else 'FALHOU'}: {len(tools)} tools, prompt={prompt.is_file()}")
         return 0 if ok else 1
     if args.modo == "mcp":
@@ -70,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
         ok, n, why = verify_chain(target)
         print(f"{'ÍNTEGRO' if ok else 'ADULTERADO'}: {n} registros verificados" + (f" ({why})" if why else ""))
         return 0 if ok else 1
+
+    if args.modo == "gui":
+        from iped_mcp import gui
+
+        return gui.main()
 
     from iped_mcp import webui_launcher
 
