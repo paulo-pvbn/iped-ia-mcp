@@ -28,6 +28,7 @@ READY_MARK = "SERVIDORES IPED INICIADOS"
 WEBAPI_PORT = 1234  # primeira porta tentada pelo web-api-launcher.py (padrão dele)
 FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent.parent))  # onde estão main.py e prompts/
+LOG_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "iped-ia-mcp" / "ultimo-log.txt"
 CONFIG_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "iped-ia-mcp" / "config.json"
 
 
@@ -141,6 +142,33 @@ def pick_folder(title: str, initial: str = "") -> str:
         return input(f"{title}: ").strip().strip('"')
 
 
+_LOG_FILE = None
+
+
+def say(msg: str = "", *, err: bool = False) -> None:
+    """Imprime e grava no arquivo de log (ultimo-log.txt) para diagnóstico."""
+    global _LOG_FILE
+    print(msg, file=sys.stderr if err else sys.stdout, flush=True)
+    try:
+        if _LOG_FILE is None:
+            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _LOG_FILE = open(LOG_PATH, "w", encoding="utf-8")  # noqa: SIM115
+        _LOG_FILE.write(msg + "\n")
+        _LOG_FILE.flush()
+    except OSError:
+        pass
+
+
+def open_ports(count: int = 20) -> list[int]:
+    return [p for p in range(WEBAPI_PORT, WEBAPI_PORT + count) if port_open("127.0.0.1", p)]
+
+
+def _host_port(url: str) -> tuple[str, int]:
+    host_port = url.split("//", 1)[-1].split("/", 1)[0]
+    host, _, port = host_port.partition(":")
+    return host, int(port or 80)
+
+
 def run(args) -> int:  # noqa: C901 - roteiro linear
     cfg = load_config()
     iped_root = Path(args.root) if args.root else None
@@ -180,64 +208,60 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
 
     procs: list[subprocess.Popen] = []
     try:
-        print("[1/3] Subindo as Web APIs do IPED…")
+        say("[1/3] Subindo as Web APIs do IPED…")
         launcher = subprocess.Popen(
             [*self_command("webapi"), "--root", str(iped_root), "--sources", str(sources_file), "--host", "127.0.0.1", "--start-port", str(WEBAPI_PORT)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=dict(os.environ, PYTHONUNBUFFERED="1"),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            encoding="utf-8", errors="replace", env=dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8"),
         )  # fmt: skip
         procs.append(launcher)
         lines: list[str] = []
-        ready = threading.Event()
 
         def pump() -> None:
             assert launcher.stdout is not None
-            for line in launcher.stdout:
-                print("   " + line.rstrip())
-                lines.append(line)
-                if READY_MARK in line:
-                    ready.set()
-            ready.set()
+            try:
+                for line in launcher.stdout:
+                    say("   " + line.rstrip())
+                    lines.append(line)
+            except Exception as exc:  # noqa: BLE001
+                say(f"   (leitura da saída interrompida: {exc!r})", err=True)
 
         threading.Thread(target=pump, daemon=True).start()
-        # Não depende só da linha "INICIADOS": se ela não vier, confere se a porta da Web API abriu.
-        waited = 0
-        while not ready.wait(2) and launcher.poll() is None and waited < 180:
-            waited += 2
-            if waited >= 20 and any(port_open("127.0.0.1", p) for p in range(WEBAPI_PORT, WEBAPI_PORT + 20)):
-                break
-        if launcher.poll() is not None and not ready.is_set():
-            print("ERRO: o launcher das Web APIs encerrou antes de ficar pronto (veja as mensagens acima).", file=sys.stderr)
-            return 1
-        if not ready.is_set() and not any(port_open("127.0.0.1", p) for p in range(WEBAPI_PORT, WEBAPI_PORT + 20)):
-            print("ERRO: as Web APIs do IPED não subiram em 3 minutos (veja as mensagens acima).", file=sys.stderr)
-            return 1
-        time.sleep(1.0)  # o bloco com as URLs é impresso logo depois da marca
-        endpoints = parse_endpoints(lines)
-        if not endpoints:  # a linha com as URLs não chegou: usa as portas que abriram, na ordem dos casos
-            ids = [src["id"] for src in sources]
-            open_ports = [p for p in range(WEBAPI_PORT, WEBAPI_PORT + 20) if port_open("127.0.0.1", p)]
-            endpoints = {sid: f"http://127.0.0.1:{port}" for sid, port in zip(ids, open_ports)}
-        if not endpoints:
-            print("ERRO: não consegui ler as URLs impressas pelo web-api-launcher.py.", file=sys.stderr)
-            return 1
 
-        alive = {}
-        for sid, url in endpoints.items():
-            host_port = url.split("//", 1)[-1].split("/", 1)[0]
-            host, _, port = host_port.partition(":")
-            for _ in range(60):  # até ~1 min para o IPED abrir o caso
-                if launcher.poll() is not None or port_open(host, int(port or 80)):
+        # Avisa de processos antigos (de uma execução anterior) ocupando as portas das Web APIs.
+        stale = open_ports()
+        if stale:
+            say(f"   AVISO: as portas {stale} já estão em uso (execução anterior ainda aberta?). "
+                "As Web APIs novas usarão a próxima porta livre; feche o processo antigo se algo não funcionar.")  # fmt: skip
+
+        # Espera as Web APIs: primeiro pelas URLs que o launcher imprime (portas corretas); se essa linha não
+        # chegar em 45 s, cai para a detecção por porta aberta.
+        wanted = max(1, len(sources))
+        waited = 0
+        endpoints: dict[str, str] = {}
+        while True:
+            if launcher.poll() is not None:
+                say(f"ERRO: o launcher das Web APIs encerrou (código {launcher.returncode}). Veja as mensagens acima.", err=True)
+                return 1
+            parsed = parse_endpoints(lines)
+            if parsed and len(parsed) >= wanted and all(port_open(*_host_port(u)) for u in parsed.values()):
+                endpoints = parsed
+                break
+            if waited >= 45 and not parsed:
+                fresh = [p for p in open_ports() if p not in stale]
+                if len(fresh) >= wanted:
+                    ids = [src["id"] for src in sources] or [f"caso{i}" for i in range(1, wanted + 1)]
+                    endpoints = {sid: f"http://127.0.0.1:{port}" for sid, port in zip(ids, fresh)}
+                    say("   (a linha com as URLs não chegou; usando as portas novas que abriram)")
                     break
-                time.sleep(1)
-            if port_open(host, int(port or 80)):
-                alive[sid] = url
-        if not alive:
-            print("ERRO: nenhuma Web API do IPED respondeu. Veja a mensagem de erro do Java acima "
-                  "(caminho do caso, versão do Java, caso indexado com o IPED 4.x).", file=sys.stderr)  # fmt: skip
-            return 1
-        if len(alive) < len(endpoints):
-            print("AVISO: algumas Web APIs não responderam: " + ", ".join(set(endpoints) - set(alive)), file=sys.stderr)
-        endpoints = alive
+            if waited >= 240:
+                say("ERRO: as Web APIs do IPED não abriram a porta em 4 minutos. Veja as mensagens acima.", err=True)
+                return 1
+            time.sleep(1)
+            waited += 1
+            if waited % 5 == 0:
+                say(f"   ...aguardando o IPED abrir o caso ({waited}s)")
+        say("   Web API(s) no ar: " + ", ".join(f"{sid} -> {url}" for sid, url in endpoints.items()))
 
         token = "" if args.no_token else secrets.token_urlsafe(24)
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
@@ -246,40 +270,42 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         else:  # a análise precisa limpar marcadores; cada chamada fica na auditoria
             env["IPED_MCP_ALLOW_DESTRUCTIVE"] = "1"
         env.pop("IPED_URL", None)  # IPED_URL e IPED_ENDPOINTS juntas são erro no MCP
+        env["FASTMCP_CHECK_FOR_UPDATES"] = "off"  # sem consulta à internet na subida (pode demorar em rede restrita)
         if token:
             env["IPED_MCP_TOKEN"] = token
-        print("[2/3] Subindo o MCP…")
+        say("[2/3] Subindo o MCP…")
         mcp = subprocess.Popen(self_command("mcp"), cwd=Path.cwd(), env=env)
         procs.append(mcp)
-        deadline = time.monotonic() + 90
+        started = time.monotonic()
         while not port_open("127.0.0.1", args.mcp_port):
-            if mcp.poll() is not None or time.monotonic() > deadline:
-                print("ERRO: o MCP não subiu (veja as mensagens acima).", file=sys.stderr)
+            if mcp.poll() is not None or time.monotonic() - started > 120:
+                say("ERRO: o MCP não subiu (veja as mensagens acima).", err=True)
                 return 1
             time.sleep(0.5)
+        say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
         if not args.no_webui:
             exe = shutil.which("open-webui")
             if exe:
-                print("[3/3] Subindo o Open WebUI…")
+                say("[3/3] Subindo o Open WebUI…")
                 wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url)
                 procs.append(subprocess.Popen([exe, "serve", "--port", str(args.webui_port)], env=wenv))
             else:
-                print("[3/3] Open WebUI não encontrado: instale com 'pip install open-webui' (Python 3.11) ou use")
-                print("      Docker e aponte para este MCP com host.docker.internal.")
+                say("[3/3] Open WebUI não encontrado: instale com 'pip install open-webui' (Python 3.11) ou use")
+                say("      Docker e aponte para este MCP com host.docker.internal.")
 
         prompt_file = ROOT / "prompts" / "analista.md"
-        print("\n=== PRONTO ===")
-        print(f"MCP:        http://127.0.0.1:{args.mcp_port}/mcp")
-        print(f"Token:      {token or '(sem token)'}  -> Authorization: Bearer <token>")
-        print(f"Open WebUI: http://127.0.0.1:{args.webui_port}")
-        print("No Open WebUI: Admin Settings > External Tools > + > MCP (Streamable HTTP) > URL e token acima.")
-        print(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
-        print("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
-        print("Ctrl+C encerra tudo.")
+        say("\n=== PRONTO ===")
+        say(f"MCP:        http://127.0.0.1:{args.mcp_port}/mcp")
+        say(f"Token:      {token or '(sem token)'}  -> Authorization: Bearer <token>")
+        say(f"Open WebUI: http://127.0.0.1:{args.webui_port}")
+        say("No Open WebUI: Admin Settings > External Tools > + > MCP (Streamable HTTP) > URL e token acima.")
+        say(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
+        say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
+        say("Ctrl+C encerra tudo.")
         while all(p.poll() is None for p in procs):
             time.sleep(1)
-        print("Um dos processos terminou; encerrando o resto.", file=sys.stderr)
+        say("Um dos processos terminou; encerrando o resto.", err=True)
         return 1
     except KeyboardInterrupt:
         return 0
