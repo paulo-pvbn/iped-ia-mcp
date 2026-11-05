@@ -146,3 +146,17 @@ def test_running_open_webui_detects_page(monkeypatch):
     assert launcher.running_open_webui(port) == f"http://127.0.0.1:{port}/"
     srv.shutdown()
     assert launcher.running_open_webui(port) is None
+
+
+def test_python_candidates_expand_conda_envs(tmp_path, monkeypatch):
+    name = "python.exe" if launcher.os.name == "nt" else "bin/python"
+    base = tmp_path / "Conda" / name
+    env = tmp_path / "Conda" / "envs" / "webui" / name
+    for f in (base, env):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x")
+    monkeypatch.setattr(launcher.shutil, "which", lambda n: str(base) if n == "python" else None)
+    found = launcher.python_candidates()
+    assert base in found
+    if launcher.os.name == "nt":  # em Linux o python do conda fica em bin/: o envs/ está um nível acima
+        assert env in found
