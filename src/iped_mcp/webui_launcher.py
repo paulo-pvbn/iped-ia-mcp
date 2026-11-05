@@ -272,6 +272,11 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
     return json.loads(raw) if raw else None
 
 
+# As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
+# (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
+NUM_CTX = 16384
+
+
 def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "") -> tuple[bool, str]:
     """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
 
@@ -307,7 +312,7 @@ def provision_open_webui(base_url: str, mcp_url: str, mcp_token: str, system_pro
             "base_model_id": chosen["id"],
             "name": "Analista IPED",
             "meta": {"description": "Analista forense com as ferramentas do IPED", "toolIds": [f"server:mcp:{MCP_ID}"]},
-            "params": {"system": system_prompt, "function_calling": "native"},
+            "params": {"system": system_prompt, "function_calling": "native", "num_ctx": NUM_CTX},
             "is_active": True,
         }
         try:
