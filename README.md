@@ -219,7 +219,13 @@ O Open WebUI do programa usa a porta **3737** (e não a 3000): outro endereço e
 sessões ou *service workers* de outros programas que já usaram `localhost:3000` (causa comum da tela
 "Backend Open WebUI necessário").
 
-**Contexto do modelo.** O "Analista IPED" é criado com `num_ctx` 16384 e só enxerga as ~21 ferramentas essenciais
-(busca, leitura de itens, regex, ufed, WhatsApp, criar/acrescentar marcador); as ferramentas internas do Open WebUI ficam
-desligadas. Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta do usuário e o modelo Qwen falhava com
+**Contexto do modelo e ferramentas.** O "Analista IPED" é criado com `num_ctx` 16384 e as ferramentas internas do
+Open WebUI desligadas. Cada ferramenta do IPED ocupa contexto (as 33 somam ~9 mil tokens): o botão **Ferramentas da IA...**
+da janela abre a lista com todas, agrupadas (Geral, Regex, UFED, WhatsApp, Marcadores), mostra o total de tokens e deixa
+ligar/desligar cada uma; o padrão são as ~21 essenciais (leitura, busca, regex, ufed, WhatsApp, criar/acrescentar
+marcador). A escolha vale no próximo **Chat com IA**. Pela linha de comando: `--ferramentas busca,doc_info,...`.
+Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta e o modelo Qwen falhava com
 "No user query found in messages". O servidor MCP em si continua expondo todas as ferramentas a outros clientes.
+
+**GPU de 8 GB.** Modelos acima de ~9B parâmetros (ex.: 27B) não cabem na GPU e rodam em parte na CPU, muito lentos; prefira
+modelos de 4B a 8B (ex.: `qwen3:8b`) e deixe só as ferramentas de que precisa. A janela avisa quando o modelo escolhido é grande.
