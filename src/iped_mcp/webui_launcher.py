@@ -345,8 +345,12 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None, proc: subp
         last = start
         while port is not None and not _healthy(url):
             if proc is not None and proc.poll() is not None:
+                if port_open("127.0.0.1", port):  # outro Open WebUI (execução anterior) já ocupa a porta: espera ele ficar pronto
+                    say(f"A porta {port} já está em uso por outro Open WebUI (de uma execução anterior); aguardando ele ficar pronto…")
+                    proc = None
+                    continue
                 say(f"O Open WebUI fechou sozinho (código {proc.returncode}). Fim do log ({OPENWEBUI_HOME / 'open-webui.log'}):", err=True)
-                say(log_tail(OPENWEBUI_HOME / "open-webui.log"), err=True)
+                say(log_tail(OPENWEBUI_HOME / "open-webui.log", 30), err=True)
                 return
             if time.monotonic() > deadline:
                 say("O Open WebUI não respondeu em 15 min; veja o log em " + str(OPENWEBUI_HOME / "open-webui.log"), err=True)
@@ -581,6 +585,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
     save_config(cfg)
 
     procs: list[subprocess.Popen] = []
+    webui_proc: subprocess.Popen | None = None
     try:
         say("[1/3] Subindo as Web APIs do IPED…")
         launcher = subprocess.Popen(
@@ -706,8 +711,24 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
         say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
         say("Ctrl+C encerra tudo.")
-        while all(p.poll() is None for p in procs):
-            time.sleep(1)
+        names = {id(launcher): "Web APIs do IPED", id(mcp): "servidor MCP"}
+        if webui_proc is not None:
+            names[id(webui_proc)] = "Open WebUI"
+        while True:
+            ended = [p for p in procs if p.poll() is not None]
+            if not ended:
+                time.sleep(1)
+                continue
+            if all(p is webui_proc for p in ended) and port_open("127.0.0.1", args.webui_port):
+                procs.remove(webui_proc)  # nosso Open WebUI saiu porque já havia outro na porta: segue com ele
+                webui_proc = None
+                continue
+            break
+        for p in ended:
+            say(f"Terminou: {names.get(id(p), 'processo')} (código {p.returncode}).", err=True)
+            if p is webui_proc:
+                say(f"Fim do log ({OPENWEBUI_HOME / 'open-webui.log'}):", err=True)
+                say(log_tail(OPENWEBUI_HOME / "open-webui.log", 30), err=True)
         say("Um dos processos terminou; encerrando o resto.", err=True)
         return 1
     except KeyboardInterrupt:
