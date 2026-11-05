@@ -205,4 +205,5 @@ def test_provision_open_webui_against_fake_server():
     model = posts["/api/v1/models/create"][2]
     assert model["base_model_id"] == "qwen:7b" and model["meta"]["toolIds"] == ["server:mcp:iped"]
     assert model["params"]["system"] == "PROMPT" and model["params"]["function_calling"] == "native"
+    assert model["params"]["num_ctx"] >= 16384
     assert posts["/api/v1/configs/models"][2]["DEFAULT_MODELS"] == "analista-iped"
