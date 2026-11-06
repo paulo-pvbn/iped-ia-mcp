@@ -16,6 +16,7 @@ import sys
 import threading
 from pathlib import Path
 
+from iped_mcp import hardware as hw
 from iped_mcp import tools_catalog as tc
 from iped_mcp import webui_launcher as wl
 
@@ -102,6 +103,29 @@ def ollama_models(url: str = "http://127.0.0.1:11434") -> list[str]:
         return []
 
 
+def ollama_info(url: str = "http://127.0.0.1:11434") -> tuple[list[dict], dict | None]:
+    """(modelos de /api/tags com tamanho, modelos carregados de /api/ps); vazios se o Ollama não responder."""
+    base = url.rstrip("/")
+    try:
+        tags = (wl._api("GET", base + "/api/tags", None, None, 4) or {}).get("models", [])
+    except Exception:  # noqa: BLE001
+        tags = []
+    try:
+        ps = wl._api("GET", base + "/api/ps", None, None, 4)
+    except Exception:  # noqa: BLE001
+        ps = None
+    return tags, ps
+
+
+def hardware_summary(ctx: int = wl.NUM_CTX) -> tuple[hw.Hardware, list[hw.ModelFit], list[tuple[str, float]], str]:
+    """Detecta GPU/RAM e confronta com os modelos do Ollama. Devolve (hardware, ajustes, carregados, relatório)."""
+    found = hw.detect()
+    tags, ps = ollama_info()
+    fits = hw.fit_models(tags, found.vram_gb, ctx)
+    loaded = hw.loaded_models(ps)
+    return found, fits, loaded, hw.report(found, fits, loaded, ctx)
+
+
 def big_model_hint(modelo: str) -> str:
     """Aviso quando o modelo é grande para uma GPU de 8 GB (quantização padrão: ~0,6 GB por bilhão de parâmetros)."""
     import re as _re
@@ -114,11 +138,13 @@ def big_model_hint(modelo: str) -> str:
 
 
 def chat_command(
-    iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "", ferramentas: object = None
+    iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "", ferramentas: object = None, num_ctx: int = 0
 ) -> list[str]:
     cmd = [*wl.self_command("iniciar"), "--root", iped_root, "--cases-dir", cases_dir]
     if modelo:
         cmd += ["--modelo", modelo]
+    if num_ctx:
+        cmd += ["--num-ctx", str(int(num_ctx))]
     chosen = tc.normalize(ferramentas) if ferramentas else []
     if chosen:
         cmd += ["--ferramentas", ",".join(chosen)]
@@ -161,6 +187,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.cmb_modelo = ttk.Combobox(frame, textvariable=self.modelo, values=[])
         self.cmb_modelo.grid(row=3, column=1, sticky="ew", padx=6)
         threading.Thread(target=self.load_models, daemon=True).start()
+        threading.Thread(target=self.probe_hardware, daemon=True).start()
 
         bar = ttk.Frame(frame)
         bar.grid(row=4, column=0, columnspan=3, sticky="w", pady=10)
@@ -170,7 +197,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.btn_multi = ttk.Button(bar, text="Multicasos...", command=self.pick_multi)
         self.btn_chat = ttk.Button(bar, text="Chat com IA", command=self.toggle_chat)
         self.btn_tools = ttk.Button(bar, text="Ferramentas da IA...", command=self.pick_tools)
-        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_tools):
+        self.btn_hw = ttk.Button(bar, text="Hardware...", command=self.show_hardware)
+        for btn in (self.btn_index, self.btn_cancel, self.btn_open, self.btn_multi, self.btn_chat, self.btn_tools, self.btn_hw):
             btn.pack(side="left", padx=4)
         self.bar = bar
 
@@ -220,6 +248,62 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     def save(self) -> None:
         """Caminhos pessoais não são gravados em disco (cada usuário informa os seus)."""
+
+    def probe_hardware(self) -> None:
+        """Ao abrir: uma linha com a GPU e o modelo recomendado (detalhes no botão Hardware...)."""
+        try:
+            found, fits, _loaded, _text = hardware_summary()
+        except Exception:  # noqa: BLE001
+            return
+        if not found.gpus:
+            self.say("Hardware: nenhuma GPU detectada; o Ollama vai usar a CPU (lento).")
+            return
+        gpu = found.gpus[0]
+        mem = f"{gpu.vram_gb:g} GB" if gpu.vram_gb else "VRAM não detectada"
+        rec = hw.recommend(fits)
+        tip = f" Modelo recomendado: {rec.name}." if rec and found.vram_gb and rec.fit == "gpu" else ""
+        self.say(f"Hardware: {gpu.name} ({mem}), RAM {found.ram_gb or '?'} GB.{tip} Botão 'Hardware...' mostra os detalhes.")
+
+    def show_hardware(self) -> None:
+        self.say("Lendo GPU, memória e modelos do Ollama…")
+
+        def work() -> None:
+            try:
+                found, fits, loaded, text = hardware_summary()
+            except Exception as exc:  # noqa: BLE001
+                found, fits, loaded, text = hw.Hardware(), [], [], f"Não consegui ler o hardware: {exc}"
+            self.root.after(0, lambda: open_window(found, fits, text))
+
+        def open_window(found: hw.Hardware, fits: list[hw.ModelFit], text: str) -> None:
+            from tkinter import scrolledtext, ttk
+
+            win = self.tk.Toplevel(self.root)
+            win.title("Hardware e modelo recomendado")
+            win.geometry("760x520")
+            win.transient(self.root)
+            box = scrolledtext.ScrolledText(win, wrap="word")
+            box.pack(fill="both", expand=True, padx=8, pady=8)
+            box.insert("1.0", text)
+            box.configure(state="disabled")
+            bar = ttk.Frame(win, padding=8)
+            bar.pack(fill="x")
+            rec = hw.recommend(fits)
+
+            def use() -> None:
+                if rec:
+                    self.modelo.set(rec.name)
+                    cfg = wl.load_config()
+                    cfg["modelo"], cfg["num_ctx"] = rec.name, str(rec.ctx or "")
+                    wl.save_config(cfg)
+                    self.say(f"Modelo escolhido: {rec.name}, contexto {rec.ctx}."
+                             + (" Ative OLLAMA_FLASH_ATTENTION=1 e OLLAMA_KV_CACHE_TYPE=q8_0 no Ollama (e reinicie-o)." if rec.q8 else ""))
+                win.destroy()
+
+            if rec and found.vram_gb and rec.fit == "gpu":
+                ttk.Button(bar, text=f"Usar {rec.name}", command=use).pack(side="left")
+            ttk.Button(bar, text="Fechar", command=win.destroy).pack(side="right")
+
+        threading.Thread(target=work, daemon=True).start()
 
     def chosen_tools(self) -> list[str]:
         saved = wl.load_config().get("ferramentas", "")
@@ -462,7 +546,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             wl.save_config(cfg)
             tools = self.chosen_tools()
             self.chat_proc = self.run_proc(
-                chat_command(iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools), env=env
+                chat_command(iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0)), env=env
             )
             self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto). Botão 'Ferramentas da IA...' para mudar.")
             hint = big_model_hint(cfg["modelo"])

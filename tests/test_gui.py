@@ -53,3 +53,9 @@ def test_chat_command_ferramentas_e_aviso_de_modelo_grande() -> None:
     assert "--ferramentas" not in gui.chat_command("C:/iped", "C:/casos")
     assert "8 GB" in gui.big_model_hint("qwen3.8:27b-ipediar8k")
     assert gui.big_model_hint("qwen3:8b") == "" and gui.big_model_hint("llama3") == ""
+
+
+def test_chat_command_num_ctx() -> None:
+    cmd = gui.chat_command("C:/iped", "C:/casos", num_ctx=12288)
+    assert cmd[cmd.index("--num-ctx") + 1] == "12288"
+    assert "--num-ctx" not in gui.chat_command("C:/iped", "C:/casos")

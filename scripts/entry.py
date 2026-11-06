@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     ap.add_argument("--modelo", default="", help="modelo do Ollama usado no 'Analista IPED' (padrão: o primeiro encontrado)")
     ap.add_argument("--ferramentas", default="", help="ferramentas do IPED mostradas ao modelo no Open WebUI, separadas por vírgula (padrão: as essenciais)")
+    ap.add_argument("--num-ctx", type=int, default=0, help="contexto (tokens) do modelo no Open WebUI (padrão: 16384)")
     ap.add_argument("--no-webui", action="store_true")
     ap.add_argument("--no-token", action="store_true")
     ap.add_argument("--sem-destrutivas", action="store_true", help="(já é o padrão) tools que removem/renomeiam/apagam marcadores ficam sempre desligadas")

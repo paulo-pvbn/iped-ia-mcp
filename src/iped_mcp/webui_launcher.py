@@ -280,7 +280,7 @@ NUM_CTX = 16384
 
 
 def provision_open_webui(
-    base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None
+    base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None, num_ctx: int = 0
 ) -> tuple[bool, str]:
     """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
 
@@ -320,7 +320,7 @@ def provision_open_webui(
                 "toolIds": [f"server:mcp:{MCP_ID}"],
                 "capabilities": {"builtin_tools": False},  # sem search_knowledge_files etc.: só as do IPED
             },
-            "params": {"system": system_prompt, "function_calling": "native", "num_ctx": NUM_CTX},
+            "params": {"system": system_prompt, "function_calling": "native", "num_ctx": max(4096, int(num_ctx or NUM_CTX))},
             "is_active": True,
         }
         try:
@@ -672,6 +672,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "system_prompt": prompt_text,
             "model": getattr(args, "modelo", "") or "",
             "tools": normalize(getattr(args, "ferramentas", "") or "") or list(DEFAULT),
+            "num_ctx": int(getattr(args, "num_ctx", 0) or 0),
         }
         if not args.no_webui:
             running = running_open_webui(args.webui_port)
