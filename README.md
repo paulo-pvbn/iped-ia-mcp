@@ -195,6 +195,10 @@ andamento, os botões *Abrir no IPED* e *Conversar com a IA* e os detalhes técn
 **IA** (Ferramentas da IA, Hardware e modelo, Dependências) e **Ajuda**. Nada pessoal é preenchido nem gravado: cada pessoa
 informa as suas pastas a cada uso. Com argumentos (`--root`, `--cases-dir`…) o programa usa o modo de console.
 
+No rodapé da barra lateral, **Ambiente** mostra se o IPED, o Ollama e o Open WebUI estão prontos e, em mini roscas, o uso de
+**CPU**, **GPU** e **memória** (atualizado a cada 2 s; verde abaixo de 70 %, âmbar até 90 %, vermelho acima). A GPU vem do
+`nvidia-smi`; sem placa NVIDIA ela aparece como "—". Tudo é lido localmente.
+
 **Voltar à versão anterior.** A janela da 0.6.x continua na release `v0.6.0` e na branch `estavel-v0.6`.
 
 ```bash
