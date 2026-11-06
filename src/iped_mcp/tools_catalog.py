@@ -11,8 +11,7 @@ from __future__ import annotations
 CATALOG: tuple[tuple[str, str, int, str, bool], ...] = (
     ("list_sources", "Geral", 95, "Lista as fontes (celular, nuvem, computador) do caso", True),
     ("search", "Geral", 884, "Busca Lucene livre (contagem + amostra de IDs)", True),
-    ("topic_terms", "Geral", 330, "Termos (PT/EN, radicais) para um tema: fuga, drogas, armas…", True),
-    ("topic_search", "Geral", 600, "Busca vários termos de uma vez, com contagem por termo", True),
+    ("topic_search", "Geral", 600, "Busca vários termos escolhidos pelo modelo, com contagem por termo", True),
     ("doc_info", "Geral", 323, "Propriedades de um item", True),
     ("doc_text", "Geral", 303, "Texto extraído de um item", True),
     ("get_document", "Geral", 157, "Todas as propriedades de um item", True),
