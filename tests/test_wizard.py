@@ -80,9 +80,9 @@ def test_build_command_with_profile_and_extra(tmp_path) -> None:
     s = wz.State(iped=str(root), origem="D:/ev/disco.E01", destino="D:/casos/c1", profile="forensic", extra="--nogui --portable")
     cmd = wz.build_command(s)
     assert cmd[1:3] == ["-jar", str(root / "iped.jar")]
-    assert cmd[3:7] == ["-d", "D:/ev/disco.E01", "-o", "D:/casos/c1"]
+    assert cmd[3:7] == ["-d", str(Path("D:/ev/disco.E01")), "-o", str(Path("D:/casos/c1"))]
     assert cmd[7:] == ["-profile", "forensic", "--nogui", "--portable"]
-    assert wz.build_command(wz.State(iped=str(root), origem="a", destino="b"))[-2:] == ["-o", "b"]
+    assert wz.build_command(wz.State(iped=str(root), origem="a", destino="b"))[-2:] == ["-o", str(Path("b"))]
 
 
 def test_review_rows(tmp_path) -> None:
