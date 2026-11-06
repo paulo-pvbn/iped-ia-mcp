@@ -179,7 +179,9 @@ def test_provision_open_webui_against_fake_server():
 
         def do_GET(self):
             seen.append(("GET", self.path))
-            if self.path == "/api/models":
+            if self.path == "/ollama/config":
+                self._send({"ENABLE_OLLAMA_API": True, "OLLAMA_BASE_URLS": ["http://127.0.0.1:11434"], "OLLAMA_API_CONFIGS": {"0": {"key": "k"}}})
+            elif self.path == "/api/models":
                 self._send({"data": [{"id": "qwen:7b", "owned_by": "ollama"}, {"id": "outro", "owned_by": "openai"}]})
             else:
                 self._send({"status": True})
@@ -195,7 +197,7 @@ def test_provision_open_webui_against_fake_server():
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
-    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT")
+    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT", ollama_url="http://127.0.0.1:11435")
     srv.shutdown()
     assert ok, msg
     posts = {p[1]: p for p in seen if p[0] == "POST"}
@@ -211,6 +213,10 @@ def test_provision_open_webui_against_fake_server():
     assert "list_sources" in flt and "!bookmarks_save_search" in flt
     assert not any("remove" in f or "rename" in f or "delete" in f for f in flt)
     assert posts["/api/v1/configs/models"][2]["DEFAULT_MODELS"] == "analista-iped"
+    oll = posts["/ollama/config/update"][2]  # Open WebUI passa a falar com o Ollama pela guarda de contexto
+    assert oll["OLLAMA_BASE_URLS"] == ["http://127.0.0.1:11435"] and oll["OLLAMA_API_CONFIGS"] == {"0": {"key": "k"}}
+    order = [p[1] for p in seen if p[0] == "POST"]
+    assert order.index("/ollama/config/update") < order.index("/api/v1/models/create")
 
 
 def _server_names() -> list[str]:

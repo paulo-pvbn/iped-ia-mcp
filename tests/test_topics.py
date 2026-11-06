@@ -14,7 +14,7 @@ def test_to_query_rules() -> None:
 def test_topic_search_per_term_and_union(monkeypatch) -> None:
     calls: list[str] = []
 
-    def fake(query: str, source_id: str, limit: int = 50, extra_filters=None) -> dict:
+    def fake(query: str, source_id: str, limit: int = 50, extra_filters=None, preview: int = 8) -> dict:
         calls.append(query)
         hits = {"fug*": [1, 2], "presidi*": [2, 3]}
         if query in hits:

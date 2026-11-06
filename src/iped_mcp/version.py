@@ -1,3 +1,1 @@
-"""Versão do programa/executável (única fonte: usada pelo entry.py e pelo título da janela)."""
-
-VERSION = "0.5.2"
+VERSION = "0.6.0"

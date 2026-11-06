@@ -147,57 +147,43 @@ def list_sources() -> list[dict[str, Any]]:
     return sources
 
 
+def _text_for(source_id: str, doc_id: int) -> str:
+    """Texto inteiro do doc (usa e alimenta o cache; doc_text reaproveita depois)."""
+    cached = text_cache_get(source_id, doc_id)
+    if cached is None:
+        cached = get_router().get_document_text(source_id, doc_id)
+        text_cache_set(source_id, doc_id, cached)
+    return cached[0]
+
+
 def search(
     query: str,
     source_id: str,
     limit: int = 50,
     extra_filters: list[str] | None = None,
+    preview: int = 8,
 ) -> dict[str, Any]:
-    """Busca Lucene livre no IPED. Retorna contagem total + amostra de doc IDs (nunca a lista cheia).
+    """Busca Lucene livre no IPED: contagem total, IDs e, dos primeiros resultados, nome, caminho, data e trecho.
 
-    Use os IDs retornados com iped_doc_info (propriedades), iped_doc_text
-    (texto), iped_doc_export (arquivo bruto) ou iped_thumb_export (thumbnail).
+    `hits` já traz o suficiente para julgar cada resultado (nome, caminho, data, trecho onde o termo aparece):
+    só use iped_doc_info/iped_doc_text para aprofundar o que importar.
 
-    SINTAXE DE BUSCA LIVRE (query) — case-insensitive:
-    - palavra: casa a palavra exata; NÃO casa variantes/plural (suspeito ≠ suspeitos).
-    - palavra?: ? = 1 caractere qualquer (suspeit? → suspeito, suspeita).
-    - palavra*: * = prefixo (suspei* → suspeito, suspeitas, suspeição).
-    - palavra~: fuzzy, palavras parecidas (propina~ → propina, propinas); lento em digitalizações.
-    - "frase": expressão exata, ordem fixa ("polícia civil"); * ? ~ não funcionam dentro.
-    - "frase"~N: frase com até N palavras de distância (slop).
-    - a b: OR implícito (qualquer das palavras).
-    - a AND b: ambas as palavras.
-    - a -b: contém a, não contém b.
-    - (a b) && c: c E (a OU b).
-    - (a b c)@N: pelo menos N palavras do conjunto.
+    SINTAXE (sem diferença de maiúsculas e acentos):
+    - palavra: casa a palavra EXATA (suspeito não casa suspeitos); a b = qualquer das duas; a AND b; a -b.
+    - palavra* prefixo (suspei*); palavra? 1 caractere; palavra~ parecidas.
+    - "frase exata"; "frase"~N (até N palavras de distância); (a b c)@N (ao menos N do conjunto).
+    - extra_filtros, campo:valor combinados com AND: ext:pdf, contentType:text/plain, name:foo*,
+      size:[5000 TO *], modified:[2025-08-01 TO 2025-08-31T23:59:59Z], created:..., path:...
+    - Poucos resultados: amplie (*, ?, ~, OR). Muitos: restrinja (AND, extra_filters). Zero não prova ausência.
 
-    EXTRA_FILTERS — filtros de campo combinados com AND (sintaxe campo:valor):
-    - ext:txt, ext:png, ext:jpg, ext:pdf (extensão)
-    - contentType:text/plain (tipo MIME)
-    - nome:foo / name:foo (nome do arquivo; wildcard ok: nome:backup*)
-    - tamanho:[5000 TO *] / size:… (faixa de bytes; {} = intervalo aberto)
-    - modificacao:[2025-08-01 TO 2025-08-31T23:59:59Z] / modified:… (data)
-    - created:… (data de criação)
-    - path:… (caminho)
-    Campo inexistente → 0 resultados (sem erro).
-
-    REFINANDO:
-    - Muitos resultados → restrinja: extra_filters com ext:/tamanho:/modificacao:, ou AND com palavras mais específicas.
-    - Poucos resultados → amplie: ~ (fuzzy), * (prefixo), ? (1 caractere), ou remova AND.
-    - Expressão exata → "frase"; tolerante a ordem/distância → "frase"~N.
-    - Excluir ruído → -palavra.
-
-    RETORNO:
-    - total: nº total de docs (pode ser milhões — não é a lista).
-    - by_source: contagem por source.
-    - ids: primeiros `limit` IDs (amostra).
-    - truncated: true se total > limit → refine a query, nunca peça a lista cheia.
+    RETORNO: total, by_source, ids (primeiros `limit`), truncated (total > limit) e hits (primeiros `preview`).
 
     Args:
-        query: query Lucene livre (palavras, "frase", *, ~, AND, etc.).
-        source_id: source no IPED (obrigatório; veja iped_list_sources).
+        query: consulta Lucene livre.
+        source_id: source no IPED (veja iped_list_sources).
         limit: máximo de IDs a devolver (padrão 50, teto 500).
-        extra_filters: filtros de campo combinados com AND (ex.: ["ext:txt", "tamanho:[5000 TO *]"]).
+        extra_filters: filtros campo:valor (ex.: ["ext:txt"]).
+        preview: quantos resultados detalhar em `hits` (0 a 20; padrão 8; 0 desliga).
     """
     if not source_id or not source_id.strip():
         raise ValueError(
@@ -208,6 +194,8 @@ def search(
         raise ValueError("'query' não pode ser vazio.")
     if not 1 <= limit <= 500:
         raise ValueError("limit deve estar entre 1 e 500.")
+    if not 0 <= preview <= 20:
+        raise ValueError("preview deve estar entre 0 e 20.")
     parts = [query.strip()]
     if extra_filters:
         parts.extend(f.strip() for f in extra_filters if f and f.strip())
@@ -235,6 +223,10 @@ def search(
         "ids": all_ids[:limit],
         "truncated": total > limit,
     }
+    if preview and all_ids:
+        from iped_mcp.core.preview import previews
+
+        result["hits"] = previews(source_id, all_ids[: min(preview, limit)], query, client, _text_for)
     return result
 
 

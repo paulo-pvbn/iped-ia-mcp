@@ -222,8 +222,8 @@ sessões ou *service workers* de outros programas que já usaram `localhost:3000
 **Contexto do modelo e ferramentas.** O "Analista IPED" é criado com `num_ctx` 16384 e as ferramentas internas do
 Open WebUI desligadas. Cada ferramenta do IPED ocupa contexto (as 33 somam ~9 mil tokens): o botão **Ferramentas da IA...**
 da janela abre a lista com todas, agrupadas (Geral, Regex, UFED, WhatsApp, Marcadores), mostra o total de tokens e deixa
-ligar/desligar cada uma; o padrão são as ~21 essenciais (leitura, busca, regex, ufed, WhatsApp, criar/acrescentar
-marcador). A escolha vale no próximo **Chat com IA**. Pela linha de comando: `--ferramentas busca,doc_info,...`.
+ligar/desligar cada uma; o padrão são as 12 essenciais (busca, leitura, WhatsApp, listar/criar/acrescentar marcador; Regex e UFED ficam
+desligadas e se ligam no painel). A escolha vale no próximo **Chat com IA**. Pela linha de comando: `--ferramentas busca,doc_info,...`.
 Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta e o modelo Qwen falhava com
 "No user query found in messages". O servidor MCP em si continua expondo todas as ferramentas a outros clientes.
 
@@ -242,3 +242,16 @@ nada. `topic_search` roda cada termo **que o próprio modelo escolheu** como con
 radical automático), informando a contagem por termo e a união. Não há lista de temas nem de sinônimos embutida: quem decide
 o que procurar é o modelo/analista, e o prompt pede um método investigativo (hipóteses, seguir pistas, iterar, nunca
 concluir ausência por uma busca vazia).
+
+**Guarda de contexto (v0.6.0).** Entre o Open WebUI e o Ollama o programa sobe um pequeno intermediário local
+(`127.0.0.1:11435`, só biblioteca padrão). Toda chamada de chat passa por ele: se a conversa (prompt + ferramentas +
+resultados) ultrapassa a janela do modelo, ele **encurta os resultados de ferramentas mais antigos** (depois descarta turnos
+antigos) mantendo sempre o prompt e a pergunta; sem isso o Ollama corta o começo e o Qwen falha com "No user query found
+in messages". Cada chamada vira uma linha no console, por exemplo `[contexto] chat #7 (qwen3:8b): ~13200 de 14400 tokens
+úteis (janela 16384): cabe.` ou `...: passou. Ajuste: 5 resultado(s) encurtado(s)...`; erros do Ollama (como o 500) também
+aparecem ali, com o texto original. O Open WebUI é reconfigurado a cada execução para usar a guarda; se o Ollama estiver
+em outra máquina, `--ollama-url` continua valendo (a guarda repassa para ele).
+
+**Resultados que já se explicam.** `search` devolve, para os primeiros resultados (`preview`, padrão 8), o nome, o caminho,
+a data e o **trecho onde o termo aparece**, buscados no próprio servidor. O modelo julga a relevância sem uma chamada
+`doc_info` por item e sem ler o documento inteiro.

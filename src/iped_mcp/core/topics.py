@@ -75,7 +75,7 @@ def topic_search(
     def run(pair: tuple[str, str]) -> dict[str, Any]:
         term, query = pair
         try:
-            res = search(query, source_id, limit=limit_per_term, extra_filters=extra_filters)
+            res = search(query, source_id, limit=limit_per_term, extra_filters=extra_filters, preview=0)
             return {"term": term, "query": query, "status": "ok", "total": res["total"], "ids": res["ids"]}
         except Exception as exc:  # noqa: BLE001
             return {"term": term, "query": query, "status": "erro", "error": str(exc)[:200]}
@@ -87,7 +87,7 @@ def topic_search(
     good_queries = [r["query"] for r in ok if r["total"]]
     if good_queries:
         try:
-            union_res = search(" ".join(f"({q})" for q in good_queries), source_id, limit=20, extra_filters=extra_filters)
+            union_res = search(" ".join(f"({q})" for q in good_queries), source_id, limit=20, extra_filters=extra_filters, preview=0)
             union = {"total": union_res["total"], "ids": union_res["ids"], "by_source": union_res["by_source"]}
         except Exception as exc:  # noqa: BLE001
             union = {"error": str(exc)[:200]}

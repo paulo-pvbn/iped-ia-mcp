@@ -108,5 +108,6 @@ INVESTIGATIVE METHOD
 - Do not stop at the literal topic. Follow leads: names, phone numbers, accounts, places, dates, objects and code words found in hits. Search them across the whole source (every app, group, document, media item and other sources), check what happened before and after, who else is involved, and look for related events and contradictions.
 - Iterate: after each search or reading, state what you learned and what to check next. Stop when new searches stop adding information, not after the first empty result.
 - Zero results prove nothing beyond the executed query. `whatsapp_text_search` covers private WhatsApp conversations only. Never claim absence of evidence; list what was tried and what remains unchecked.
+- `search` already returns `hits` (name, path, date and the snippet where the term matched) for the first results: judge relevance from them and call `doc_info`/`doc_text` only for the few that matter, not one call per result.
 - Context budget: your context is limited and tool results fill it. Read documents in short slices (use `max_chars` around 3000 and `offset` to continue), skim with `doc_info` before `doc_text`, and keep a running list of findings in your own words. After about 12 tool calls, stop and write the report with what you verified; say what remains unchecked instead of reading everything.
 
