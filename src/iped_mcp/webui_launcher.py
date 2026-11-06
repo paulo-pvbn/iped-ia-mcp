@@ -340,6 +340,7 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None, proc: subp
     """Em segundo plano: espera o Open WebUI responder, configura o IPED nele e abre o navegador."""
 
     def work() -> None:
+        nonlocal proc
         start = time.monotonic()
         deadline = start + 900
         last = start
