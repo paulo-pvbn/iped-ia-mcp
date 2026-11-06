@@ -178,12 +178,24 @@ Este fork acrescenta, **sem alterar as tools originais**:
   **Chat com IA** procura o Open WebUI e, se faltar, oferece instalar um ambiente próprio em `%APPDATA%\iped-ia-mcp\openwebui` (precisa de Python 3.11 e
   internet); depois, **Chat com IA** sobe tudo e o Open WebUI usa o Ollama em `http://127.0.0.1:11434`.
 
-**Janela (duplo clique no `.exe`, sem argumentos):** campos *Pasta do IPED*, *ORIGEM* (imagem ou pasta de evidências) e
-*DESTINO* (pasta do caso), com os botões **INDEXAR** (roda `java -jar iped.jar -d ORIGEM -o DESTINO`, com o log ao vivo),
-**Cancelar**, **Abrir caso** (IPED-SearchApp do DESTINO), **Multicasos…** (uma pasta com vários casos indexados) e
-**Chat com IA** (sobe Web APIs do IPED + MCP + Open WebUI e mostra no log a URL e o token). A opção "Permitir remover
-marcadores" liga ou desliga as tools de remoção. A sintaxe `-d/-o` é a padrão do IPED, mas **não foi validada aqui**:
-o comando completo aparece no log antes de rodar. Com argumentos (`--root`, `--cases-dir`…) o programa usa o modo de console.
+**Janela v1.0 (duplo clique no `.exe`, sem argumentos).** Assistente em etapas, tema escuro e menus suspensos. A primeira
+etapa pergunta a **tarefa** e o assistente mostra só as etapas que ela precisa:
+
+| Tarefa | Etapas |
+|---|---|
+| Indexar um novo caso | Tarefa, IPED, Evidências, Pasta do caso, Processamento, Assistente de IA, Revisar, Executar (8) |
+| Abrir um caso já indexado | Tarefa, Pasta do caso, Revisar, Executar |
+| Conversar com a IA (um caso ou vários) | Tarefa, IPED, Pasta do caso, Assistente de IA, Revisar, Executar |
+
+Cada etapa valida o que foi informado antes de avançar (mensagem logo abaixo do campo) e o que já foi feito pode ser revisitado
+pela barra lateral. **Processamento** lê os perfis da instalação do IPED (subpastas de `profiles`) num menu suspenso e aceita
+argumentos extras em "Opções avançadas". **Revisar** mostra o comando exato (`java -jar iped.jar -d ORIGEM -o DESTINO
+[-profile PERFIL] [extras]`); essas opções do IPED **não foram validadas aqui contra o IPED real**. Em **Executar** ficam o
+andamento, os botões *Abrir no IPED* e *Conversar com a IA* e os detalhes técnicos (log). Menus: **Caso** (trocar de tarefa),
+**IA** (Ferramentas da IA, Hardware e modelo, Dependências) e **Ajuda**. Nada pessoal é preenchido nem gravado: cada pessoa
+informa as suas pastas a cada uso. Com argumentos (`--root`, `--cases-dir`…) o programa usa o modo de console.
+
+**Voltar à versão anterior.** A janela da 0.6.x continua na release `v0.6.0` e na branch `estavel-v0.6`.
 
 ```bash
 # executável (baixe em Releases; gerado pelo workflow "Release (executável Windows)")
@@ -220,10 +232,10 @@ sessões ou *service workers* de outros programas que já usaram `localhost:3000
 "Backend Open WebUI necessário").
 
 **Contexto do modelo e ferramentas.** O "Analista IPED" é criado com `num_ctx` 16384 e as ferramentas internas do
-Open WebUI desligadas. Cada ferramenta do IPED ocupa contexto (as 33 somam ~9 mil tokens): o botão **Ferramentas da IA...**
+Open WebUI desligadas. Cada ferramenta do IPED ocupa contexto (as 33 somam ~9 mil tokens): o menu **IA > Ferramentas da IA…**
 da janela abre a lista com todas, agrupadas (Geral, Regex, UFED, WhatsApp, Marcadores), mostra o total de tokens e deixa
 ligar/desligar cada uma; o padrão são as 12 essenciais (busca, leitura, WhatsApp, listar/criar/acrescentar marcador; Regex e UFED ficam
-desligadas e se ligam no painel). A escolha vale no próximo **Chat com IA**. Pela linha de comando: `--ferramentas busca,doc_info,...`.
+desligadas e se ligam no painel). A escolha vale no próximo chat. Pela linha de comando: `--ferramentas busca,doc_info,...`.
 Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta e o modelo Qwen falhava com
 "No user query found in messages". O servidor MCP em si continua expondo todas as ferramentas a outros clientes.
 
@@ -231,7 +243,7 @@ Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta e o modelo Qw
 modelos de 4B a 8B (ex.: `qwen3:8b`) e deixe só as ferramentas de que precisa. A janela avisa quando o modelo escolhido é grande.
 
 **Hardware e modelo recomendado.** Ao abrir, a janela detecta a GPU (via `nvidia-smi`; em AMD/Intel só o nome, a memória
-não é confiável) e a RAM e escreve uma linha com o modelo recomendado. O botão **Hardware...** lê os modelos baixados no
+não é confiável) e a RAM e escreve uma linha com o modelo recomendado. O menu **IA > Hardware e modelo…** lê os modelos baixados no
 Ollama, estima quais cabem inteiros na VRAM (tamanho do modelo + cache de contexto + folga) e mostra, depois que o modelo
 carrega, a medida real do Ollama (`% na GPU`). **Usar \<modelo\>** escolhe o modelo e o contexto (16384 ou 12288) para o
 próximo Chat com IA. As contas são estimativas; para 8 GB de VRAM costuma servir um modelo de 4B a 8B com
