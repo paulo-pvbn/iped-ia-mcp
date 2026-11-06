@@ -34,7 +34,7 @@ def to_query(term: str, expand: bool = True) -> str:
         return word
     if not expand or not re.fullmatch(r"[a-z0-9]+", word) or len(word) < 5:
         return word
-    stem = word[:-1] if word[-1] in "aeos" else word  # presidio -> presidi*, foragido -> foragid*
+    stem = word[:-1] if word[-1] in "aeos" else word  # ex.: cidade -> cidad*, ferramentas -> ferramenta*
     return f"{stem}*" if len(stem) >= 4 else word
 
 
@@ -47,8 +47,8 @@ def topic_search(
 ) -> dict[str, Any]:
     """Busca vários termos de um tema de uma vez: cada termo é uma consulta separada, com contagem por termo.
 
-    Resolve o problema do search exato (fuga não casa fugiu): palavras longas viram radical (presidio ->
-    presidi*), "duas palavras" vira frase exata e x* / x? são respeitados. Informa quais termos acharam e
+    Resolve o problema do search exato (comprar não casa comprou): palavras longas viram radical (comprou ->
+    compro*), "duas palavras" vira frase exata e x* / x? são respeitados. Informa quais termos acharam e
     quais não, e o total da união. Zero resultado só vale para as consultas executadas; não prova ausência.
     Escolha o vocabulário você mesmo, pensando como um investigador; depois leia os melhores itens com
     iped_doc_info e iped_doc_text e siga as pistas (nomes, números, lugares, datas) antes de afirmar algo.
