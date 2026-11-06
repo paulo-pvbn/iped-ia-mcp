@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+from iped_mcp.ollama_guard import OllamaGuard
 from iped_mcp.tools_catalog import DEFAULT, build_filter, normalize
 
 ENDPOINT_RE = re.compile(r"^-\s+(?P<id>.+?):\s+(?P<url>https?://\S+?)/?\s+\(PID\s+\d+\)")
@@ -277,6 +278,7 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 # As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
 # (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
 NUM_CTX = 16384
+GUARD_PORT = 11435  # guarda de contexto entre o Open WebUI e o Ollama (11434)
 
 
 def text_chars_for(num_ctx: int) -> int:
@@ -285,7 +287,8 @@ def text_chars_for(num_ctx: int) -> int:
 
 
 def provision_open_webui(
-    base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None, num_ctx: int = 0
+    base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None, num_ctx: int = 0,
+    ollama_url: str = "",
 ) -> tuple[bool, str]:
     """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
 
@@ -299,6 +302,10 @@ def provision_open_webui(
     except Exception as exc:  # noqa: BLE001
         return False, f"não consegui entrar no Open WebUI sem login ({exc}); ele já tinha contas?"
     try:
+        if ollama_url:  # o Open WebUI passa a falar com o Ollama pela guarda de contexto (a configuração salva prevalece sobre a variável de ambiente)
+            current = _api("GET", f"{base}/ollama/config", None, token) or {}
+            _api("POST", f"{base}/ollama/config/update",
+                 {"ENABLE_OLLAMA_API": True, "OLLAMA_BASE_URLS": [ollama_url], "OLLAMA_API_CONFIGS": {"0": (current.get("OLLAMA_API_CONFIGS") or {}).get("0", {})}}, token)  # fmt: skip
         connection = {
             "url": mcp_url,
             "path": "",
@@ -591,6 +598,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
     save_config(cfg)
 
     procs: list[subprocess.Popen] = []
+    guards: list[OllamaGuard] = []
     webui_proc: subprocess.Popen | None = None
     try:
         say("[1/3] Subindo as Web APIs do IPED…")
@@ -671,6 +679,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             time.sleep(0.5)
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
+        ctx = int(getattr(args, "num_ctx", 0) or NUM_CTX)
+        guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}")).start()
+        guards.append(guard)
+        say(f"   Guarda de contexto no ar em {guard.url} (Ollama em {args.ollama_url}).")
         webui_url = f"http://127.0.0.1:{args.webui_port}"
         prompt_text = (ROOT / "prompts" / "analista.md").read_text(encoding="utf-8") if (ROOT / "prompts" / "analista.md").is_file() else ""
         setup = {
@@ -680,6 +692,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "model": getattr(args, "modelo", "") or "",
             "tools": normalize(getattr(args, "ferramentas", "") or "") or list(DEFAULT),
             "num_ctx": int(getattr(args, "num_ctx", 0) or 0),
+            "ollama_url": guard.url,
         }
         if not args.no_webui:
             running = running_open_webui(args.webui_port)
@@ -691,7 +704,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             elif webui_cmd:
                 say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
-                wenv = dict(os.environ, OLLAMA_BASE_URL=args.ollama_url, DATA_DIR=str(OPENWEBUI_HOME / "data-local"), WEBUI_AUTH="False")  # sem login: só 127.0.0.1
+                wenv = dict(os.environ, OLLAMA_BASE_URL=guard.url, DATA_DIR=str(OPENWEBUI_HOME / "data-local"), WEBUI_AUTH="False")  # sem login: só 127.0.0.1
                 # Busca em documentos (RAG) do Open WebUI usaria um modelo local baixado do HuggingFace; aponta para o Ollama
                 # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
                 wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
@@ -742,6 +755,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
     except KeyboardInterrupt:
         return 0
     finally:
+        for g in guards:
+            g.stop()
         for p in reversed(procs):
             stop(p)
         if temp_sources is not None:
