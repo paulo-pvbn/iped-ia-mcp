@@ -199,6 +199,21 @@ No rodapé da barra lateral, **Ambiente** mostra se o IPED, o Ollama e o Open We
 **CPU**, **GPU** e **memória** (atualizado a cada 2 s; verde abaixo de 70 %, âmbar até 90 %, vermelho acima). A GPU vem do
 `nvidia-smi`; sem placa NVIDIA ela aparece como "—". Tudo é lido localmente.
 
+**Sem janela preta (v1.1.0).** O executável é de janela: nada de terminal aparece e todos os processos (Web APIs do IPED, MCP,
+Open WebUI, instaladores) rodam escondidos. A abertura mostra uma barra de etapas; na etapa **Executar** o chat sobe em cinco
+passos (IPED → MCP → Guarda → Open WebUI → Pronto) e os detalhes técnicos ficam recolhidos ("Mostrar detalhes técnicos").
+Com o chat no ar, uma barra mostra o **uso do contexto** (tokens usados / janela, em verde, âmbar ou vermelho) e a velocidade
+(tok/s), lidos de um arquivo só com números gravado pela guarda; acima de 80 % aparece o aviso para começar uma nova conversa.
+
+**Menu IPED → Dependências.** Lista o que o IPED e a IA precisam, o que foi encontrado e o que falta, com instalação direta
+quando existe: Java (winget), Visual C++ (winget), Ollama (winget), modelo de IA (baixado pelo Ollama, com barra de progresso;
+o tamanho sugerido segue a memória da placa), Open WebUI (ambiente próprio; baixa o Python 3.11 sozinho se preciso) e os módulos
+Python opcionais (JEP, numpy, faster-whisper, face_recognition). O servidor MCP já vem embutido no programa. Itens sem instalador
+automático (CoreNLP, plugin JPEG2000, MPlayer, dicionários do Tesseract, cuDNN/cuBLAS, módulos de idade) mostram onde obter.
+Baixar instaladores precisa de internet; o processamento dos casos e da IA continua local. **Os comandos de instalação dos
+módulos Python e do Java estão marcados "a validar": vêm da documentação pública e não foram conferidos contra o seu IPED.**
+O programa mostra cada comando no log antes de rodar.
+
 **Voltar à versão anterior.** A janela da 0.6.x continua na release `v0.6.0` e na branch `estavel-v0.6`.
 
 ```bash

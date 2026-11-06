@@ -33,6 +33,7 @@ FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent.parent))  # onde estão main.py e prompts/
 LOG_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "iped-ia-mcp" / "ultimo-log.txt"
 CONFIG_PATH = Path(os.environ.get("APPDATA") or Path.home()) / "iped-ia-mcp" / "config.json"
+STATS_PATH = CONFIG_PATH.parent / "uso-contexto.json"  # só números (tokens, velocidade); a janela lê para mostrar o uso do contexto
 
 
 def parse_endpoints(lines: list[str]) -> dict[str, str]:
@@ -101,6 +102,16 @@ def port_open(host: str, port: int) -> bool:
         return False
 
 
+def hidden_kwargs() -> dict:
+    """`creationflags`/`startupinfo` que impedem a janela preta de processos filhos no Windows."""
+    if os.name != "nt":
+        return {}
+    info = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+    info.wShowWindow = 0  # SW_HIDE
+    return {"creationflags": 0x08000000, "startupinfo": info}  # CREATE_NO_WINDOW
+
+
 def self_command(modo: str) -> list[str]:
     """Comando que reexecuta este programa em outro modo (executável ou script)."""
     if FROZEN:
@@ -113,7 +124,7 @@ def stop(proc: subprocess.Popen) -> None:
         return
     try:
         if os.name == "nt":  # encerra a árvore (Java/Python filhos)
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False)
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False, **hidden_kwargs())
         else:
             proc.terminate()
         proc.wait(timeout=15)
@@ -173,7 +184,7 @@ def python_candidates() -> list[Path]:
         add(shutil.which(name))
     if shutil.which("py"):
         try:
-            out = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=20).stdout  # noqa: S603,S607
+            out = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=20, **hidden_kwargs()).stdout  # noqa: S603,S607
             for line in out.splitlines():
                 m = re.search(r"([A-Za-z]:\\.*?python[w]?\.exe)\s*$", line.strip(), re.IGNORECASE)
                 if m:
@@ -222,7 +233,7 @@ def python_candidates() -> list[Path]:
 def python_version(py: Path) -> tuple[int, int] | None:
     try:
         out = subprocess.run(  # noqa: S603
-            [str(py), "-c", "import sys;print('%d.%d' % sys.version_info[:2])"], capture_output=True, text=True, timeout=20
+            [str(py), "-c", "import sys;print('%d.%d' % sys.version_info[:2])"], capture_output=True, text=True, timeout=20, **hidden_kwargs()
         ).stdout.strip()
         major, minor = out.split(".")
         return int(major), int(minor)
@@ -243,7 +254,7 @@ def find_open_webui_command() -> list[str] | None:
     probe = "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('open_webui') else 1)"
     for py in pythons:
         try:
-            if subprocess.run([str(py), "-c", probe], capture_output=True, timeout=30).returncode == 0:  # noqa: S603
+            if subprocess.run([str(py), "-c", probe], capture_output=True, timeout=30, **hidden_kwargs()).returncode == 0:  # noqa: S603
                 return [str(py), "-m", "open_webui"]
         except (OSError, subprocess.SubprocessError):
             continue
@@ -438,9 +449,9 @@ def _get_uv() -> str | None:
     if uv_exe.is_file():
         return str(uv_exe)
     for py in python_candidates():  # qualquer Python (mesmo 3.13) serve só para instalar o uv
-        if subprocess.call([str(py), "-m", "venv", str(tools)]) == 0:  # noqa: S603
+        if subprocess.call([str(py), "-m", "venv", str(tools)], **hidden_kwargs()) == 0:  # noqa: S603
             vpy = tools / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            if subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", "uv"]) == 0 and uv_exe.is_file():  # noqa: S603
+            if subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", "uv"], **hidden_kwargs()) == 0 and uv_exe.is_file():  # noqa: S603
                 return str(uv_exe)
         break
     if os.name == "nt":  # sem nenhum Python: baixa o uv.exe
@@ -474,11 +485,11 @@ def install_open_webui(package: str = "open-webui") -> int:
     py = find_python_311()
     if py is not None:
         say(f"Criando ambiente em {venv} com {' '.join(py)}…")
-        if subprocess.call([*py, "-m", "venv", str(venv)]) != 0:  # noqa: S603
+        if subprocess.call([*py, "-m", "venv", str(venv)], **hidden_kwargs()) != 0:  # noqa: S603
             say("ERRO ao criar o ambiente virtual.", err=True)
             return 1
         say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
-        code = subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", package])  # noqa: S603
+        code = subprocess.call([str(vpy), "-m", "pip", "install", "--upgrade", package], **hidden_kwargs())  # noqa: S603
     else:
         found = ", ".join(f"{p} ({python_version(p) or '?'})" for p in python_candidates()) or "nenhum"
         say(f"Não há Python 3.11/3.12 (encontrados: {found}). Vou usar o 'uv', que baixa o Python 3.11 sozinho.")
@@ -487,11 +498,11 @@ def install_open_webui(package: str = "open-webui") -> int:
             say("ERRO: não consegui obter o uv (precisa de internet). Instale o Python 3.11 em python.org e tente de novo.", err=True)
             return 1
         say(f"Criando ambiente em {venv} com Python 3.11 (via uv)…")
-        if subprocess.call([uv, "venv", "--python", "3.11", str(venv)]) != 0:  # noqa: S603
+        if subprocess.call([uv, "venv", "--python", "3.11", str(venv)], **hidden_kwargs()) != 0:  # noqa: S603
             say("ERRO: o uv não conseguiu criar o ambiente com Python 3.11.", err=True)
             return 1
         say("Instalando o Open WebUI (pode levar vários minutos; precisa de internet)…")
-        code = subprocess.call([uv, "pip", "install", "--python", str(vpy), "--upgrade", package])  # noqa: S603
+        code = subprocess.call([uv, "pip", "install", "--python", str(vpy), "--upgrade", package], **hidden_kwargs())  # noqa: S603
     if code != 0:
         say("ERRO: a instalação do Open WebUI falhou (veja as mensagens acima).", err=True)
         return 1
@@ -617,6 +628,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             [*self_command("webapi"), "--root", str(iped_root), "--sources", str(sources_file), "--host", "127.0.0.1", "--start-port", str(WEBAPI_PORT)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
             encoding="utf-8", errors="replace", env=dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8"),
+            stdin=subprocess.DEVNULL, **hidden_kwargs(),
         )  # fmt: skip
         procs.append(launcher)
         lines: list[str] = []
@@ -680,8 +692,21 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         if token:
             env["IPED_MCP_TOKEN"] = token
         say("[2/3] Subindo o MCP…")
-        mcp = subprocess.Popen(self_command("mcp"), cwd=Path.cwd(), env=env)
+        mcp = subprocess.Popen(  # noqa: S603
+            self_command("mcp"), cwd=Path.cwd(), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", **hidden_kwargs(),
+        )  # fmt: skip
         procs.append(mcp)
+
+        def pump_mcp() -> None:
+            assert mcp.stdout is not None
+            try:
+                for line in mcp.stdout:
+                    say("   [mcp] " + line.rstrip())
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=pump_mcp, daemon=True).start()
         started = time.monotonic()
         while not port_open("127.0.0.1", args.mcp_port):
             if mcp.poll() is not None or time.monotonic() - started > 120:
@@ -691,7 +716,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
         ctx = int(getattr(args, "num_ctx", 0) or NUM_CTX)
-        guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}")).start()
+        STATS_PATH.unlink(missing_ok=True)  # números de uma execução anterior não valem
+        guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}"), stats_path=STATS_PATH).start()
         guards.append(guard)
         say(f"   Guarda de contexto no ar em {guard.url} (Ollama em {args.ollama_url}).")
         webui_url = f"http://127.0.0.1:{args.webui_port}"
@@ -724,7 +750,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 log_file = open(OPENWEBUI_HOME / "open-webui.log", "ab")  # noqa: SIM115  (saída ruidosa vai para arquivo)
                 say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")
                 webui_proc = subprocess.Popen(  # noqa: S603
-                    [*webui_cmd, "serve", "--host", "127.0.0.1", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT
+                    [*webui_cmd, "serve", "--host", "127.0.0.1", "--port", str(args.webui_port)], env=wenv, stdout=log_file, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, **hidden_kwargs(),
                 )
                 procs.append(webui_proc)
                 finish_open_webui(webui_url, args.webui_port, setup, webui_proc)

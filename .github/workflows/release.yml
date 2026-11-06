@@ -32,16 +32,20 @@ jobs:
       - name: Empacotar
         shell: bash
         run: |
-          pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
+          pyinstaller --onefile --noconsole --name iped-ia-mcp --paths src --paths . \
             --collect-all fastmcp --collect-submodules iped_mcp \
             --hidden-import main --hidden-import requests --hidden-import dotenv \
             --add-data "web-api-launcher.py;." --add-data "prompts;prompts" \
             scripts/entry.py
       - name: Teste de fumaça
-        shell: bash
+        shell: pwsh
         run: |
-          ./dist/iped-ia-mcp.exe --version
-          ./dist/iped-ia-mcp.exe --selftest
+          # o .exe é de janela (sem console): Start-Process espera e redireciona a saída para arquivos
+          foreach ($arg in "--version", "--selftest") {
+            $p = Start-Process -FilePath ./dist/iped-ia-mcp.exe -ArgumentList $arg -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+            Get-Content out.txt, err.txt
+            if ($p.ExitCode -ne 0) { throw "falhou: $arg (código $($p.ExitCode))" }
+          }
       - name: Preparar arquivo
         shell: bash
         run: |

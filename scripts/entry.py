@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import runpy
 import sys
 from pathlib import Path
@@ -23,7 +24,27 @@ for path in (HERE, HERE / "src"):  # script: usa o repositório; executável: o 
 from iped_mcp.version import VERSION  # noqa: E402
 
 
+def _fix_std_streams() -> None:
+    """Executável sem console (janela): `print` não pode quebrar. Ligamos ao console de quem chamou, se houver; senão, descartamos."""
+    if sys.stdout is not None and sys.stderr is not None and sys.stdin is not None:
+        return
+    if sys.platform == "win32" and len(sys.argv) > 1:  # chamado de um terminal com argumentos: mostra a saída lá
+        try:
+            import ctypes
+
+            if ctypes.windll.kernel32.AttachConsole(-1):  # type: ignore[attr-defined]  # ATTACH_PARENT_PROCESS
+                sys.stdout = sys.stdout or open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+                sys.stderr = sys.stderr or open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+        except Exception:  # noqa: BLE001
+            pass
+    null = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    sys.stdout = sys.stdout or null
+    sys.stderr = sys.stderr or null
+    sys.stdin = sys.stdin or open(os.devnull, encoding="utf-8")  # noqa: SIM115
+
+
 def main(argv: list[str] | None = None) -> int:
+    _fix_std_streams()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--modo", choices=["gui", "iniciar", "mcp", "webapi", "verificar", "instalar-webui"], default=None)
     ap.add_argument("--version", action="store_true")
@@ -53,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         tools = asyncio.run(server.mcp.list_tools())
         prompt = HERE / "prompts" / "analista.md"
         ok = len(tools) >= 30 and prompt.is_file() and (HERE / "web-api-launcher.py").is_file()
-        from iped_mcp import gui, gui_app, ui_theme, wizard  # noqa: F401  (a janela é importável)
+        from iped_mcp import deps, gui, gui_app, progress, ui_theme, widgets, wizard  # noqa: F401  (a janela é importável)
 
         if sys.platform in ("win32", "darwin"):
             import tkinter  # noqa: F401  (tem de estar empacotado)
@@ -107,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         code = webui_launcher.run(args)
     except Exception as exc:  # noqa: BLE001
         print(f"ERRO inesperado: {exc!r}", file=sys.stderr)
-    if code != 0 and sys.stdin and sys.stdin.isatty():  # não fechar a janela antes de ler o erro
+    if code != 0 and sys.stdin and sys.stdin.isatty() and sys.stdout.isatty():  # não fechar a janela antes de ler o erro
         try:  # no Windows o NUL também parece um terminal: sem stdin real, input() dá EOFError
             input("\nPressione Enter para fechar…")
         except (EOFError, OSError):

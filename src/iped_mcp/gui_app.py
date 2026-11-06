@@ -12,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from iped_mcp import gui, sysmon, ui_theme
+from iped_mcp import deps, gui, progress, sysmon, ui_theme, widgets
 from iped_mcp import hardware as hw
 from iped_mcp import tools_catalog as tc
 from iped_mcp import webui_launcher as wl
@@ -62,6 +62,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         self.tk, self.ttk, self.filedialog, self.messagebox = tk, ttk, filedialog, messagebox
         self.root = tk.Tk()
+        self.root.withdraw()  # a janela principal só aparece quando a tela de abertura termina
+        self.splash = widgets.Splash(self.root, tk, APP_TITLE, self._version())
+        self.splash.step(0.2, "Carregando componentes…")
         self.root.title(f"{APP_TITLE} {self._version()}")
         self.root.geometry("1180x760")
         self.root.minsize(980, 660)
@@ -86,12 +89,46 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.run_state = ("idle", "")  # (idle|running|done|failed, texto)
         self.run_widgets: dict = {}
         self.closing = False
+        self.env_checked = False  # o ambiente (Ollama, Open WebUI) já foi lido?
+        self.tracker = progress.Tracker()
+        self.log_open = False
+        self.splash_since = 0.0
 
+        self.splash.step(0.45, "Montando a interface…")
         self._build_shell()
         self.root.bind("<Return>", self._on_return)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(150, self.drain)
         self.render()
+        self.splash.step(0.7, "Lendo o ambiente (IPED, Ollama, Open WebUI)…")
+
+    def _finish_splash(self) -> None:
+        """Fecha a abertura quando o ambiente foi lido (ou depois de 5 s, o que vier primeiro) e mostra a janela."""
+        import time
+
+        if self.splash is None:
+            return
+        waited = time.monotonic() - self.splash_since
+        if not (self.env_checked and waited > 0.6) and waited < 5:
+            self.root.after(100, self._finish_splash)
+            return
+        self.splash.step(1.0, "Pronto")
+        self.splash.close()
+        self.splash = None
+        self.root.deiconify()
+        self.root.lift()
+
+    def _tick_context(self) -> None:
+        """Uso do contexto da conversa: a guarda grava só números; aqui só se lê e se desenha."""
+        if self.closing:
+            return
+        bar = self.run_widgets.get("context") if self.run_widgets else None
+        if bar is not None and self.chat_proc is not None:
+            try:
+                bar.update_use(progress.context_use(progress.read_stats(wl.STATS_PATH)))
+            except Exception:  # noqa: BLE001  (widget destruído na troca de etapa)
+                pass
+        self.root.after(2000, self._tick_context)
 
     def _start_background(self) -> None:
         """Leituras do ambiente (Ollama, Open WebUI); só começam com o laço da janela rodando."""
@@ -99,6 +136,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         threading.Thread(target=self.refresh_status, daemon=True).start()  # só lê o ambiente (nada de widgets)
         threading.Thread(target=self._poll_gpu, daemon=True).start()
         self._tick_monitor()
+        self._tick_context()
 
     def _poll_gpu(self) -> None:
         """O nvidia-smi demora alguns décimos de segundo: roda fora da janela e só guarda o resultado."""
@@ -136,7 +174,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         ttk.Label(header, text=f"  MCP · v{self._version()}", style="Muted.TLabel").pack(side="left", pady=(4, 0))
         ttk.Frame(header, width=24).pack(side="left")
         self._menu(header, "Caso", [(t, lambda c=c: self.jump(c)) for t, c in wz.TASKS.items()])
-        self._menu(header, "IA", [("Ferramentas da IA…", self.pick_tools), ("Hardware e modelo…", self.show_hardware), ("Dependências…", self.show_dependencies)])
+        self._menu(header, "IPED", [("Dependências…", self.show_dependencies), ("Instalar o que falta (assistido)…", lambda: self.show_dependencies(auto=True))])
+        self._menu(header, "IA", [("Ferramentas da IA…", self.pick_tools), ("Hardware e modelo…", self.show_hardware)])
         self._menu(header, "Ajuda", [("Sobre o programa", self.about)])
         ttk.Separator(root).grid(row=0, column=0, columnspan=2, sticky="sew")
 
@@ -157,6 +196,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             note = ttk.Label(row, text="verificando…", style="SideMuted.TLabel")
             note.pack(side="right")
             self.status_chips[key] = (dot, note)
+        link = tk.Label(chips, text="Gerenciar dependências…", fg=P["accent_text"], bg=P["side"], font=self.f["small"], cursor="hand2")
+        link.pack(anchor="w", pady=(8, 0))
+        link.bind("<Button-1>", lambda _e: self.show_dependencies())
         gauges = tk.Frame(chips, bg=P["side"])
         gauges.pack(fill="x", pady=(12, 0))
         self.gauges: dict[str, Donut] = {}
@@ -541,18 +583,39 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         status.grid(row=0, column=1, sticky="w")
         bar = ttk.Progressbar(self.form, mode="indeterminate")
         bar.grid(row=1, column=0, sticky="ew", pady=(12, 12))
+        stage = widgets.StageBar(self.form, tk)
+        stage.cv.grid(row=1, column=0, sticky="ew", pady=(8, 4))
+        stage.set(self.tracker.done)
+        context = widgets.ContextBar(self.form, tk)
+        context.box.grid(row=2, column=0, sticky="w", pady=(0, 4))
         actions = ttk.Frame(self.form)
-        actions.grid(row=2, column=0, sticky="w", pady=(12, 0))
-        ttk.Label(self.form, text="Detalhes técnicos", style="Muted.TLabel").grid(row=3, column=0, sticky="w", pady=(20, 6))
+        actions.grid(row=3, column=0, sticky="w", pady=(12, 0))
+        toggle = ttk.Button(self.form, text="", style="Ghost.TButton")
+        toggle.grid(row=4, column=0, sticky="w", pady=(16, 6))
         log = tk.Text(self.form, height=12, wrap="word", bg=P["side"], fg=P["muted"], relief="flat", font=self.f["mono"], padx=12, pady=10, highlightthickness=1, highlightbackground=P["border"], state="disabled")
-        log.grid(row=4, column=0, sticky="nsew")
-        self.form.rowconfigure(4, weight=1)
+        log.grid(row=5, column=0, sticky="nsew")
+        self.form.rowconfigure(5, weight=1)
         self.log_widget = log
         log.configure(state="normal")
         log.insert("end", "\n".join(self.log_buffer[-400:]) + ("\n" if self.log_buffer else ""))
         log.see("end")
         log.configure(state="disabled")
-        self.run_widgets = {"dot": dot, "status": status, "bar": bar, "actions": actions}
+
+        def show_log() -> None:
+            if self.log_open:
+                log.grid()
+                toggle.configure(text="▾  Ocultar detalhes técnicos")
+            else:
+                log.grid_remove()
+                toggle.configure(text="▸  Mostrar detalhes técnicos")
+
+        def flip() -> None:
+            self.log_open = not self.log_open
+            show_log()
+
+        toggle.configure(command=flip)
+        show_log()
+        self.run_widgets = {"dot": dot, "status": status, "bar": bar, "stage": stage, "context": context, "actions": actions}
         self._paint_run()
 
     # ---- execução
@@ -571,7 +634,10 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         w["status"].configure(text=text or idle)
         for child in w["actions"].winfo_children():
             child.destroy()
-        if kind == "running":
+        chat_view = self.chat_proc is not None
+        w["stage"].cv.grid() if chat_view else w["stage"].cv.grid_remove()
+        w["context"].box.grid() if chat_view else w["context"].box.grid_remove()
+        if kind == "running" and not chat_view:
             w["bar"].grid()
             w["bar"].start(12)
         else:
@@ -688,12 +754,15 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.chat_proc = self.run_proc(
                 gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0)), env=env
             )
+            self.tracker = progress.Tracker()
             self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto).")
             hint = gui.big_model_hint(cfg["modelo"])
             if hint:
                 self.say(hint)
-            self.run_state = ("running", "Subindo IPED, servidor MCP e Open WebUI… o navegador abre sozinho.")
+            self.run_state = ("running", self.tracker.label)
             self._paint_run()
+            if self.run_widgets.get("stage"):
+                self.run_widgets["stage"].set(0)
             threading.Thread(target=self.watch_chat, args=(self.chat_proc,), daemon=True).start()
 
         self.run_state = ("running", "Procurando o Open WebUI neste computador…")
@@ -773,6 +842,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             while True:
                 text = self.lines.get_nowait().rstrip("\n")
                 self.log_buffer.append(text)
+                if self.chat_proc is not None:
+                    self._advance_stage(text)
                 if self.log_widget is not None and self.log_widget.winfo_exists():
                     self.log_widget.configure(state="normal")
                     self.log_widget.insert("end", text + "\n")
@@ -783,6 +854,22 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         except Exception:  # noqa: BLE001  (widget destruído durante a troca de etapa)
             self.log_widget = None
         self.root.after(150, self.drain)
+
+    def _advance_stage(self, text: str) -> None:
+        before = self.tracker.done
+        self.tracker.feed(text)
+        stage = self.run_widgets.get("stage") if self.run_widgets else None
+        if stage is not None and self.tracker.done != before:
+            try:
+                stage.set(self.tracker.done)
+                if self.tracker.done >= len(progress.STAGES):
+                    self.run_state = ("done", "Pronto! O chat abriu no navegador.")
+                    self._paint_run()
+                else:
+                    self.run_state = ("running", self.tracker.label)
+                    self.run_widgets["status"].configure(text=self.tracker.label)
+            except Exception:  # noqa: BLE001
+                pass
 
     def load_models(self) -> None:
         models = gui.ollama_models()
@@ -834,6 +921,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             chip("iped", "ok" if (Path(iped) / "iped.jar").is_file() else "idle", "pronto" if (Path(iped) / "iped.jar").is_file() else "a informar")
             chip("ollama", "ok" if ollama else "warn", f"{ollama} modelo(s)" if ollama else "fechado")
             chip("webui", "ok" if webui else "warn", "encontrado" if webui else "ausente")
+            self.env_checked = True
 
         self.root.after(0, paint)
 
@@ -955,40 +1043,164 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def show_dependencies(self) -> None:
-        tk, ttk = self.tk, self.ttk
-        win = self.toplevel("Dependências", "720x560")
-        ttk.Label(win, text="Dependências", font=self.f["h2"]).pack(anchor="w", padx=24, pady=(20, 2))
-        ttk.Label(win, text="Só o IPED é obrigatório. Sem o Ollama e o Open WebUI, apenas o chat com IA fica indisponível.", style="Muted.TLabel", wraplength=660, justify="left").pack(anchor="w", padx=24)
-        body = ttk.Frame(win, padding=(24, 16))
-        body.pack(fill="both", expand=True)
-        ttk.Label(body, text="Verificando…", style="Muted.TLabel").pack(anchor="w")
-        ttk.Button(win, text="Fechar", style="Ghost.TButton", command=win.destroy).pack(side="bottom", anchor="e", padx=24, pady=16)
+    def show_dependencies(self, auto: bool = False) -> None:
+        """Gerenciador: o que o IPED e a IA precisam, o que foi encontrado e instalação direta quando existe."""
+        import webbrowser
 
+        tk, ttk = self.tk, self.ttk
+        win = self.toplevel("Dependências", "900x700")
+        ttk.Label(win, text="Dependências", font=self.f["h2"]).pack(anchor="w", padx=24, pady=(20, 2))
+        ttk.Label(
+            win, style="Muted.TLabel", wraplength=840, justify="left",
+            text="Verde: encontrado. Amarelo: opcional ou ausente. Vermelho: obrigatório e ausente. Baixar instaladores precisa de internet; "
+            "o processamento dos casos e da IA continua neste computador. Os comandos aparecem nos detalhes técnicos antes de rodar.",
+        ).pack(anchor="w", padx=24)
+        foot = ttk.Frame(win, padding=(24, 10))
+        foot.pack(side="bottom", fill="x")
+        mid = ttk.Frame(win)
+        mid.pack(fill="both", expand=True, padx=(24, 8), pady=(12, 0))
+        canvas = tk.Canvas(mid, bg=P["bg"], highlightthickness=0)
+        scroll = ttk.Scrollbar(mid, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas)
+        body.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        inner = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner, width=e.width))
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        win.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+        ttk.Label(body, text="Verificando…", style="Muted.TLabel").pack(anchor="w")
+
+        info = tk.StringVar(value="")
+        ttk.Label(foot, textvariable=info, style="Muted.TLabel", wraplength=840, justify="left").pack(anchor="w")
+        bar = ttk.Progressbar(foot, mode="determinate", maximum=100)
+        buttons = ttk.Frame(foot)
+        buttons.pack(fill="x", pady=(8, 0))
+        state: dict = {"busy": False, "frac": None, "line": "", "deps": [], "pending_auto": auto}
+        btn_all = ttk.Button(buttons, text="Instalar o que falta", style="Primary.TButton")
+        btn_all.pack(side="left")
+        ttk.Button(buttons, text="Verificar de novo", command=lambda: scan()).pack(side="left", padx=8)
+        ttk.Button(buttons, text="Fechar", style="Ghost.TButton", command=win.destroy).pack(side="right")
         self.collect()
         iped_root = self.state.iped
 
-        def work() -> None:
-            webui = bool(wl.running_open_webui(3737) or wl.find_open_webui_command())
-            checks = wz.dependencies(iped_root, webui_found=webui)
-            self.root.after(0, lambda: fill(checks))
+        def say_line(text: str) -> None:
+            state["line"] = text[:160]
+            self.say(text)
 
-        def fill(checks: list[wz.Check]) -> None:
+        def scan() -> None:
+            if state["busy"]:
+                return
+            info.set("Verificando o computador…")
+
+            def work() -> None:
+                found = deps.check_all(iped_root)
+                self.root.after(0, lambda: fill(found))
+
+            threading.Thread(target=work, daemon=True).start()
+
+        def install(plans: list[tuple[str, deps.Plan]]) -> None:
+            if state["busy"] or not plans:
+                return
+            state.update(busy=True, frac=None)
+            bar.pack(fill="x", pady=(8, 0))
+            bar.configure(mode="indeterminate")
+            bar.start(12)
+            btn_all.configure(state="disabled")
+
+            def work() -> None:
+                failed = []
+                for name, plan in plans:
+                    say_line(f"=== {name} ===")
+                    res = deps.run_plan(plan, say_line, lambda f: state.update(frac=f))
+                    if not res.ok:
+                        failed.append(f"{name}: {res.message}")
+                        say_line(res.message)
+                state["failed"] = failed
+                state["busy"] = False
+                self.root.after(0, finished)
+
+            threading.Thread(target=work, daemon=True).start()
+            poll()
+
+        def poll() -> None:
+            if not win.winfo_exists() or not state["busy"]:
+                return
+            if state["frac"] is not None:
+                bar.stop()
+                bar.configure(mode="determinate", value=state["frac"] * 100)
+            else:
+                bar.configure(mode="indeterminate")
+                bar.start(12)
+            info.set(state["line"] or "Instalando…")
+            win.after(250, poll)
+
+        def finished() -> None:
             if not win.winfo_exists():
                 return
+            bar.stop()
+            bar.pack_forget()
+            btn_all.configure(state="normal")
+            failed = state.get("failed") or []
+            scan()
+            if failed:
+                self.messagebox.showwarning(APP_TITLE, "Alguns itens não foram instalados:\n\n" + "\n".join(failed) + "\n\nVeja os detalhes técnicos na etapa Executar.", parent=win)
+            else:
+                info.set("Concluído. Se algum item continuar ausente depois de instalar, feche e abra este programa para ele enxergar o novo PATH.")
+
+        def fill(found: list[deps.Dep]) -> None:
+            if not win.winfo_exists():
+                return
+            state["deps"] = found
             for child in body.winfo_children():
                 child.destroy()
-            for c in checks:
-                card = ttk.Frame(body, style="Card.TFrame", padding=(16, 10))
-                card.pack(fill="x", pady=4)
-                color = {"ok": P["ok"], "warn": P["warn"], "fail": P["danger"]}[c.status]
-                tk.Label(card, text="●", fg=color, bg=P["surface"], font=self.f["h2"]).pack(side="left", padx=(0, 12))
-                text = ttk.Frame(card, style="Card.TFrame")
-                text.pack(side="left", fill="x")
-                ttk.Label(text, text=c.name, style="Card.TLabel", font=self.f["bold"]).pack(anchor="w")
-                ttk.Label(text, text=c.detail + (f" — {c.hint}" if c.hint else ""), style="CardMuted.TLabel", wraplength=560, justify="left").pack(anchor="w")
+            groups = (("iped", "IPED e módulos opcionais"), ("ia", "Assistente de IA (tudo local)"))
+            for key, title in groups:
+                rows = [d for d in found if d.group == key]
+                have = sum(d.status == deps.OK for d in rows)
+                ttk.Label(body, text=f"{title}  ·  {have} de {len(rows)} encontrados", font=self.f["bold"]).pack(anchor="w", pady=(14, 2))
+                for d in rows:
+                    card = ttk.Frame(body, style="Card.TFrame", padding=(14, 8))
+                    card.pack(fill="x", pady=3, padx=(0, 6))
+                    color = {deps.OK: P["ok"], deps.OPTIONAL: P["warn"], deps.UNKNOWN: P["muted"], deps.MISSING: P["danger"] if d.required else P["warn"]}[d.status]
+                    tk.Label(card, text="●", fg=color, bg=P["surface"], font=self.f["h2"]).pack(side="left", padx=(0, 12))
+                    right = ttk.Frame(card, style="Card.TFrame")
+                    right.pack(side="right", padx=(12, 0))
+                    text = ttk.Frame(card, style="Card.TFrame")
+                    text.pack(side="left", fill="x", expand=True)
+                    tag = "  (obrigatório)" if d.required and d.status != deps.OK else ""
+                    ttk.Label(text, text=d.name + tag, style="Card.TLabel", font=self.f["bold"]).pack(anchor="w")
+                    extra = d.detail + (f" — {d.why}" if d.why and d.status != deps.OK else "")
+                    ttk.Label(text, text=extra, style="CardMuted.TLabel", wraplength=560, justify="left").pack(anchor="w")
+                    if d.plan and d.status != deps.OK:
+                        if d.plan.automatic:
+                            label = "Baixar modelo" if d.plan.kind == "pull" else "Instalar"
+                            ttk.Button(right, text=label, command=lambda d=d: ask_install([d])).pack()
+                            if not d.plan.validated:
+                                ttk.Label(right, text="a validar", style="CardMuted.TLabel").pack()
+                        else:
+                            ttk.Button(right, text="Como obter", command=lambda u=d.plan.url: webbrowser.open(u)).pack()
+            todo = deps.installable(found)
+            btn_all.configure(state="normal" if todo else "disabled", command=lambda: ask_install(todo))
+            miss = deps.missing_required(found)
+            info.set("Tudo o que é obrigatório foi encontrado." if not miss else f"Faltam {len(miss)} item(ns) obrigatório(s): {', '.join(d.name for d in miss)}.")
+            if state.pop("pending_auto", False) and todo:
+                ask_install(todo)
 
-        threading.Thread(target=work, daemon=True).start()
+        def ask_install(items: list[deps.Dep]) -> None:
+            plans = [(d.name, d.plan) for d in items if d.plan and d.plan.automatic]
+            listing = "\n".join(f"• {n}: {' '.join(p.command)}" for n, p in plans)
+            heavy = any(p.kind in {"openwebui", "pull"} for _n, p in plans)
+            ok = self.messagebox.askokcancel(
+                APP_TITLE,
+                "Vou instalar:\n\n" + listing + "\n\nPrecisa de internet para baixar" + (" (centenas de MB a alguns GB; pode demorar)" if heavy else "") +
+                ". Alguns instaladores pedem permissão de administrador do Windows. Continuar?",
+                parent=win,
+            )
+            if ok:
+                install(plans)
+
+        scan()
 
     def about(self) -> None:
         ttk = self.ttk
@@ -1011,7 +1223,11 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.destroy()
 
     def run(self) -> int:
+        import time
+
+        self.splash_since = time.monotonic()
         self.root.after(100, self._start_background)
+        self.root.after(100, self._finish_splash)
         self.root.mainloop()
         return 0
 

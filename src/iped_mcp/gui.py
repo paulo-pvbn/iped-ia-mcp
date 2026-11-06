@@ -18,6 +18,11 @@ APP_TITLE = "IPED-IA MCP"
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
+def hidden_kwargs() -> dict:
+    """Argumentos do `subprocess` para o processo filho não abrir janela preta no Windows (vazio nos outros sistemas)."""
+    return wl.hidden_kwargs()
+
+
 # ------------------------------------------------------------------------------- lógica (sem interface)
 def find_java(iped_root: Path) -> str:
     """Java do próprio IPED (``jre``) ou, na falta dele, o do sistema."""

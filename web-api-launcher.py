@@ -263,7 +263,7 @@ def main() -> int:
             ]
             popen_options: dict[str, Any] = {"cwd": str(root)}
             if os.name == "nt":
-                popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000  # sem janela preta (CREATE_NO_WINDOW)
             else:
                 popen_options["start_new_session"] = True
 

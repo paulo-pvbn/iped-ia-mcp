@@ -22,6 +22,7 @@ import re
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -35,6 +36,20 @@ RETRY_FACTOR = 1.35  # a cada recusa por "no user query", a estimativa de tokens
 MAX_RETRIES = 3
 MAX_RATIO = 4.0
 _EVAL_COUNT = re.compile(rb'"prompt_eval_count"\s*:\s*(\d+)')
+_GEN_COUNT = re.compile(rb'"eval_count"\s*:\s*(\d+)')
+_GEN_NS = re.compile(rb'"eval_duration"\s*:\s*(\d+)')
+STATS_NAME = "uso-contexto.json"
+
+
+def parse_stats(tail: bytes) -> dict[str, float] | None:
+    """Números que o Ollama informa no fim da resposta: tokens lidos, tokens gerados e velocidade (tok/s)."""
+    read, gen, ns = _EVAL_COUNT.findall(tail), _GEN_COUNT.findall(tail), _GEN_NS.findall(tail)
+    if not read:
+        return None
+    out: dict[str, float] = {"prompt": int(read[-1]), "gen": int(gen[-1]) if gen else 0}
+    if gen and ns and int(ns[-1]) > 0:
+        out["tps"] = round(int(gen[-1]) / (int(ns[-1]) / 1e9), 1)
+    return out
 
 
 def estimate_tokens(value: Any) -> int:
@@ -133,7 +148,7 @@ class OllamaGuard:
 
     def __init__(
         self, upstream: str, port: int = 0, host: str = "127.0.0.1", default_ctx: int = DEFAULT_CTX,
-        log: Callable[[str], None] | None = None,
+        log: Callable[[str], None] | None = None, stats_path: Any = None,
     ) -> None:  # fmt: skip
         parts = urlsplit(upstream if "//" in upstream else f"http://{upstream}")
         self.up_host, self.up_port = parts.hostname or "127.0.0.1", parts.port or (443 if parts.scheme == "https" else 11434)
@@ -141,6 +156,8 @@ class OllamaGuard:
         self.default_ctx = default_ctx
         self.log = log or (lambda _m: None)
         self.calls = 0
+        self.stats_path = stats_path  # arquivo com números de uso (sem texto das conversas) que a janela lê
+        self.stats: dict[str, Any] = {}
         self.ratios: dict[str, float] = {}  # modelo -> tokens reais por token estimado (só sobe)
         guard = self
 
@@ -194,9 +211,22 @@ class OllamaGuard:
         extra = f", tentativa {attempt + 1}" if attempt else ""
         self.log(f"chat #{self.calls} ({model}{extra}): {describe(info, num_ctx)}" + (f" [fator {ratio:.2f}]" if ratio > 1 else ""))
         raw = (info.get("after", info["tokens"]) + info["tools"]) / ratio  # estimativa sem correção, para comparar com o Ollama
-        return json.dumps(data, ensure_ascii=False).encode("utf-8"), {"model": model, "raw": raw}
+        return json.dumps(data, ensure_ascii=False).encode("utf-8"), {"model": model, "raw": raw, "ctx": num_ctx}
+
+    def _record(self, meta: dict[str, Any] | None, tail: bytes) -> None:
+        got = parse_stats(tail)
+        if not meta or not got:
+            return
+        self.stats = {**got, "ctx": meta["ctx"], "model": meta["model"], "used": got["prompt"] + got["gen"]}
+        if self.stats_path:
+            try:
+                Path(self.stats_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(self.stats_path).write_text(json.dumps(self.stats), encoding="utf-8")
+            except OSError:
+                pass
 
     def _learn(self, meta: dict[str, Any] | None, tail: bytes) -> None:
+        self._record(meta, tail)
         found = _EVAL_COUNT.findall(tail)
         if not meta or not found or meta["raw"] <= 0:
             return
