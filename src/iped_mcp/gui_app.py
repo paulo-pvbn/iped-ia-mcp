@@ -12,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from iped_mcp import gui, ui_theme
+from iped_mcp import gui, sysmon, ui_theme
 from iped_mcp import hardware as hw
 from iped_mcp import tools_catalog as tc
 from iped_mcp import webui_launcher as wl
@@ -23,6 +23,36 @@ P = ui_theme.PALETTE
 PRESET_ESSENTIAL = f"Essenciais ({len(tc.DEFAULT)} ferramentas, recomendado)"
 PRESET_ALL = f"Todas ({len(tc.NAMES)} ferramentas)"
 PRESET_CUSTOM = "Personalizado…"
+
+
+class Donut:  # pragma: no cover - desenho (precisa de display)
+    """Mini rosca com o percentual no centro; a cor muda por faixa de uso (verde, âmbar, vermelho)."""
+
+    SIZE, THICK = 52, 6
+
+    def __init__(self, parent, tk, fonts: dict, label: str) -> None:
+        self.tk = tk
+        self.box = tk.Frame(parent, bg=P["side"])
+        self.cv = tk.Canvas(self.box, width=self.SIZE, height=self.SIZE, bg=P["side"], highlightthickness=0)
+        self.cv.pack()
+        self.label = tk.Label(self.box, text=label, fg=P["text"], bg=P["side"], font=fonts["small"])
+        self.label.pack(pady=(2, 0))
+        self.detail = tk.Label(self.box, text=" ", fg=P["muted"], bg=P["side"], font=fonts["small"])
+        self.detail.pack()
+        self.fonts = fonts
+        self.update_value(None, "")
+
+    def update_value(self, percent: float | None, detail: str) -> None:
+        cv, pad = self.cv, self.THICK // 2 + 1
+        box = (pad, pad, self.SIZE - pad, self.SIZE - pad)
+        cv.delete("all")
+        cv.create_oval(*box, outline=P["border"], width=self.THICK)
+        if percent is not None and percent > 0:
+            color = P[{"ok": "ok", "warn": "warn", "danger": "danger"}[sysmon.level(percent)]]
+            cv.create_arc(*box, start=90, extent=-min(359.9, 3.6 * percent), style="arc", outline=color, width=self.THICK)
+        text = "—" if percent is None else f"{percent:.0f}%"
+        cv.create_text(self.SIZE // 2, self.SIZE // 2, text=text, fill=P["text"], font=self.fonts["small"])
+        self.detail.configure(text=detail or " ")
 
 
 class App:  # pragma: no cover - interface gráfica (não roda sem display)
@@ -51,8 +81,11 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.models: list[str] = []
         self.hw_cache: tuple | None = None
         self.status_chips: dict[str, tuple] = {}
+        self.monitor = sysmon.Sampler()
+        self.gpu_reading = sysmon.Gauge(None)
         self.run_state = ("idle", "")  # (idle|running|done|failed, texto)
         self.run_widgets: dict = {}
+        self.closing = False
 
         self._build_shell()
         self.root.bind("<Return>", self._on_return)
@@ -64,6 +97,25 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         """Leituras do ambiente (Ollama, Open WebUI); só começam com o laço da janela rodando."""
         threading.Thread(target=self.load_models, daemon=True).start()
         threading.Thread(target=self.refresh_status, daemon=True).start()  # só lê o ambiente (nada de widgets)
+        threading.Thread(target=self._poll_gpu, daemon=True).start()
+        self._tick_monitor()
+
+    def _poll_gpu(self) -> None:
+        """O nvidia-smi demora alguns décimos de segundo: roda fora da janela e só guarda o resultado."""
+        import time
+
+        while not self.closing:
+            self.gpu_reading = self.monitor.read_gpu()
+            time.sleep(2)
+
+    def _tick_monitor(self) -> None:
+        """Atualiza as roscas (thread da janela); CPU e memória são leituras baratas."""
+        if self.closing:
+            return
+        cpu, ram = self.monitor.read_cpu_ram()
+        for key, gauge in (("cpu", cpu), ("gpu", self.gpu_reading), ("ram", ram)):
+            self.gauges[key].update_value(gauge.percent, gauge.detail)
+        self.root.after(2000, self._tick_monitor)
 
     @staticmethod
     def _version() -> str:
@@ -105,6 +157,13 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             note = ttk.Label(row, text="verificando…", style="SideMuted.TLabel")
             note.pack(side="right")
             self.status_chips[key] = (dot, note)
+        gauges = tk.Frame(chips, bg=P["side"])
+        gauges.pack(fill="x", pady=(12, 0))
+        self.gauges: dict[str, Donut] = {}
+        for col, (key, label) in enumerate((("cpu", "CPU"), ("gpu", "GPU"), ("ram", "Memória"))):
+            gauges.columnconfigure(col, weight=1, uniform="g")
+            self.gauges[key] = Donut(gauges, tk, self.f, label)
+            self.gauges[key].box.grid(row=0, column=col)
 
         main = ttk.Frame(root, padding=(40, 32, 40, 24))
         main.grid(row=1, column=1, sticky="nsew")
@@ -945,6 +1004,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     # ------------------------------------------------------------------------------------------ ciclo de vida
     def close(self) -> None:
+        self.closing = True
         for proc in (self.index_proc, self.chat_proc):
             if proc is not None:
                 gui.kill_tree(proc)
