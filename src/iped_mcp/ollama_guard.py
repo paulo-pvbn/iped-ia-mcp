@@ -7,12 +7,18 @@ Qwen então falha com "No user query found in messages" e o relatório final nun
 A guarda recebe as chamadas `/api/chat` do Open WebUI, confere o tamanho estimado, encurta resultados de
 ferramentas antigos (a pergunta e o prompt de sistema nunca saem) e repassa ao Ollama. O resto das rotas passa direto.
 Cada chamada vira uma linha de log: é a prova de quanto contexto está sendo usado.
+
+A conta de tokens é uma estimativa (caracteres / 3). Para não depender dela, a guarda se corrige sozinha: (1) se o Ollama
+responder "No user query found", refaz a chamada com margem maior (o erro acontece antes de gerar, então é barato);
+(2) quando o Ollama informa quantos tokens leu (`prompt_eval_count`), compara com a estimativa e aprende o fator do modelo.
+O fator só sobe: com cache de prompt o Ollama conta menos do que leu, e isso não pode afrouxar o limite.
 """
 
 from __future__ import annotations
 
 import http.client
 import json
+import re
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +31,10 @@ LEVELS = (3000, 1500, 600, 250)  # tetos de caracteres por resultado de ferramen
 MARK = "\n[…resultado resumido para caber na janela de contexto]"
 OMITTED = "[resultado omitido para caber na janela de contexto; chame a ferramenta de novo se precisar]"
 DEFAULT_CTX = 16384
+RETRY_FACTOR = 1.35  # a cada recusa por "no user query", a estimativa de tokens é multiplicada por isto
+MAX_RETRIES = 3
+MAX_RATIO = 4.0
+_EVAL_COUNT = re.compile(rb'"prompt_eval_count"\s*:\s*(\d+)')
 
 
 def estimate_tokens(value: Any) -> int:
@@ -37,20 +47,23 @@ def _message_tokens(message: dict[str, Any]) -> int:
 
 
 def fit_messages(
-    messages: list[dict[str, Any]], num_ctx: int, tools: list[dict[str, Any]] | None = None
+    messages: list[dict[str, Any]], num_ctx: int, tools: list[dict[str, Any]] | None = None, ratio: float = 1.0
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Ajusta `messages` para caber em `num_ctx`. Devolve (mensagens, contagens). `num_ctx<=0` não mexe.
+
+    `ratio` multiplica a estimativa de tokens (1.0 = padrão; sobe quando o Ollama mostrou que contou mais).
 
     Ordem: (1) encurta resultados de ferramentas, dos mais antigos aos mais novos, em níveis cada vez menores;
     (2) descarta turnos inteiros anteriores à última pergunta; (3) omite o conteúdo dos resultados que sobrarem.
     O prompt de sistema e a última pergunta do usuário nunca são removidos nem alterados.
     """
-    limit = max(0, num_ctx - ANSWER_RESERVE - (estimate_tokens(tools) if tools else 0))
-    info = {"tokens": 0, "limit": limit, "shortened": 0, "dropped": 0, "omitted": 0}
+    tools_tokens = int(estimate_tokens(tools) * ratio) if tools else 0
+    limit = max(0, num_ctx - ANSWER_RESERVE - tools_tokens)
+    info = {"tokens": 0, "limit": limit, "tools": tools_tokens, "shortened": 0, "dropped": 0, "omitted": 0}
     out = [dict(m) for m in messages]
 
     def total() -> int:
-        return sum(_message_tokens(m) for m in out)
+        return int(sum(_message_tokens(m) for m in out) * ratio)
 
     info["tokens"] = total()
     if num_ctx <= 0 or info["tokens"] <= limit:
@@ -128,6 +141,7 @@ class OllamaGuard:
         self.default_ctx = default_ctx
         self.log = log or (lambda _m: None)
         self.calls = 0
+        self.ratios: dict[str, float] = {}  # modelo -> tokens reais por token estimado (só sobe)
         guard = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -159,49 +173,80 @@ class OllamaGuard:
         self.server.server_close()
 
     # -- internos --------------------------------------------------------------------------------------
-    def _adjust(self, body: bytes) -> bytes:
+    def _adjust(self, body: bytes, attempt: int = 0) -> tuple[bytes, dict[str, Any] | None]:
         try:
             data = json.loads(body)
         except ValueError:
-            return body
+            return body, None
         messages = data.get("messages")
         if not isinstance(messages, list):
-            return body
+            return body, None
         options = data.get("options") if isinstance(data.get("options"), dict) else {}
         num_ctx = int(options.get("num_ctx") or self.default_ctx)
         if not options.get("num_ctx"):  # sem janela explícita o Ollama usaria a padrão (pequena): fixa a nossa
             data["options"] = {**options, "num_ctx": num_ctx}
-        fitted, info = fit_messages(messages, num_ctx, data.get("tools"))
+        model = str(data.get("model", "?"))
+        ratio = self.ratios.get(model, 1.0)
+        fitted, info = fit_messages(messages, num_ctx, data.get("tools"), ratio)
         data["messages"] = fitted
-        self.calls += 1
-        self.log(f"chat #{self.calls} ({data.get('model', '?')}): {describe(info, num_ctx)}")
-        return json.dumps(data, ensure_ascii=False).encode("utf-8")
+        if attempt == 0:
+            self.calls += 1
+        extra = f", tentativa {attempt + 1}" if attempt else ""
+        self.log(f"chat #{self.calls} ({model}{extra}): {describe(info, num_ctx)}" + (f" [fator {ratio:.2f}]" if ratio > 1 else ""))
+        raw = (info.get("after", info["tokens"]) + info["tools"]) / ratio  # estimativa sem correção, para comparar com o Ollama
+        return json.dumps(data, ensure_ascii=False).encode("utf-8"), {"model": model, "raw": raw}
 
-    def _handle(self, req: BaseHTTPRequestHandler, body: bytes) -> None:
-        path = req.path
-        if req.command == "POST" and path.split("?")[0] == "/api/chat":
-            body = self._adjust(body)
+    def _learn(self, meta: dict[str, Any] | None, tail: bytes) -> None:
+        found = _EVAL_COUNT.findall(tail)
+        if not meta or not found or meta["raw"] <= 0:
+            return
+        real = int(found[-1])
+        seen = real / meta["raw"]
+        model = meta["model"]
+        self.log(f"   Ollama leu {real} tokens (estimei ~{int(meta['raw'])}; relação {seen:.2f})")
+        if seen > self.ratios.get(model, 1.0):
+            self.ratios[model] = min(MAX_RATIO, seen)
+            self.log(f"   Estimativa corrigida para {model}: fator {self.ratios[model]:.2f}")
+
+    def _upstream(self, req: BaseHTTPRequestHandler, path: str, body: bytes) -> tuple[Any, http.client.HTTPResponse]:
         headers = {k: v for k, v in req.headers.items() if k.lower() not in {"host", "content-length", "accept-encoding", "connection"}}
         if body or req.command in {"POST", "PUT"}:
             headers["Content-Length"] = str(len(body))
         conn_cls = http.client.HTTPSConnection if self.up_https else http.client.HTTPConnection
-        try:
-            conn = conn_cls(self.up_host, self.up_port, timeout=1800)
-            conn.request(req.command, path, body=body or None, headers=headers)
-            resp = conn.getresponse()
-        except OSError as exc:
-            self.log(f"Ollama não respondeu em {self.up_host}:{self.up_port} ({exc})")
-            msg = json.dumps({"error": f"Ollama indisponível: {exc}"}).encode()
-            req.send_response(502)
-            req.send_header("Content-Type", "application/json")
-            req.end_headers()
-            req.wfile.write(msg)
-            return
-        try:
+        conn = conn_cls(self.up_host, self.up_port, timeout=1800)
+        conn.request(req.command, path, body=body or None, headers=headers)
+        return conn, conn.getresponse()
+
+    def _handle(self, req: BaseHTTPRequestHandler, body: bytes) -> None:
+        path = req.path
+        chat = req.command == "POST" and path.split("?")[0] == "/api/chat"
+        attempt = 0
+        while True:
+            sent, meta = self._adjust(body, attempt) if chat else (body, None)
+            try:
+                conn, resp = self._upstream(req, path, sent)
+            except OSError as exc:
+                self.log(f"Ollama não respondeu em {self.up_host}:{self.up_port} ({exc})")
+                msg = json.dumps({"error": f"Ollama indisponível: {exc}"}).encode()
+                req.send_response(502)
+                req.send_header("Content-Type", "application/json")
+                req.end_headers()
+                req.wfile.write(msg)
+                return
             data = b""
             if resp.status >= 400:  # erros são curtos: lê tudo e registra antes de responder
                 data = resp.read()
-                self.log(f"Ollama respondeu {resp.status} em {path}: {data.decode('utf-8', 'replace')[:300]}")
+                text = data.decode("utf-8", "replace")
+                self.log(f"Ollama respondeu {resp.status} em {path}: {text[:300]}")
+                if meta and resp.status == 500 and "no user query" in text.lower() and attempt < MAX_RETRIES:
+                    conn.close()
+                    attempt += 1
+                    model = meta["model"]
+                    self.ratios[model] = min(MAX_RATIO, self.ratios.get(model, 1.0) * RETRY_FACTOR)
+                    self.log(f"   O contexto estourou: refazendo com margem maior (tentativa {attempt + 1} de {MAX_RETRIES + 1}).")
+                    continue
+            break
+        try:
             req.send_response(resp.status)
             for key, value in resp.getheaders():
                 if key.lower() not in {"transfer-encoding", "connection", "content-length"}:
@@ -210,9 +255,12 @@ class OllamaGuard:
             if resp.status >= 400:
                 req.wfile.write(data)
             else:
+                tail = b""
                 while chunk := resp.read1(8192):
                     req.wfile.write(chunk)
                     req.wfile.flush()
+                    tail = (tail + chunk)[-4096:]
+                self._learn(meta, tail)
         except (BrokenPipeError, ConnectionResetError):
             pass  # o navegador parou a geração
         finally:
