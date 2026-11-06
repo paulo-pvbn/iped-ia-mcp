@@ -236,3 +236,10 @@ Ollama, estima quais cabem inteiros na VRAM (tamanho do modelo + cache de contex
 carrega, a medida real do Ollama (`% na GPU`). **Usar \<modelo\>** escolhe o modelo e o contexto (16384 ou 12288) para o
 próximo Chat com IA. As contas são estimativas; para 8 GB de VRAM costuma servir um modelo de 4B a 8B com
 `OLLAMA_FLASH_ATTENTION=1` e `OLLAMA_KV_CACHE_TYPE=q8_0` no Ollama. Nada sai da máquina (só `127.0.0.1`).
+
+**Busca temática (`topic_terms` e `topic_search`).** A busca livre do IPED casa a palavra **exata** (`comprar` não casa `comprou`,
+`presos` não casa `relatório`), e modelos pequenos tendem a tentar uma frase literal, receber zero e concluir que não há
+nada. `topic_terms` devolve famílias de termos (português/inglês, com radicais `x*`) para temas comuns e `topic_search` roda cada termo como
+consulta separada (palavras longas ganham radical automático), informando a contagem por termo e a união. São hipóteses
+de busca; os itens continuam sendo lidos com `doc_info`/`doc_text` antes de qualquer afirmação.
+
