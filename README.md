@@ -229,3 +229,10 @@ Com as 33 ferramentas e contexto de 8k o Ollama cortava a pergunta e o modelo Qw
 
 **GPU de 8 GB.** Modelos acima de ~9B parâmetros (ex.: 27B) não cabem na GPU e rodam em parte na CPU, muito lentos; prefira
 modelos de 4B a 8B (ex.: `qwen3:8b`) e deixe só as ferramentas de que precisa. A janela avisa quando o modelo escolhido é grande.
+
+**Hardware e modelo recomendado.** Ao abrir, a janela detecta a GPU (via `nvidia-smi`; em AMD/Intel só o nome, a memória
+não é confiável) e a RAM e escreve uma linha com o modelo recomendado. O botão **Hardware...** lê os modelos baixados no
+Ollama, estima quais cabem inteiros na VRAM (tamanho do modelo + cache de contexto + folga) e mostra, depois que o modelo
+carrega, a medida real do Ollama (`% na GPU`). **Usar \<modelo\>** escolhe o modelo e o contexto (16384 ou 12288) para o
+próximo Chat com IA. As contas são estimativas; para 8 GB de VRAM costuma servir um modelo de 4B a 8B com
+`OLLAMA_FLASH_ATTENTION=1` e `OLLAMA_KV_CACHE_TYPE=q8_0` no Ollama. Nada sai da máquina (só `127.0.0.1`).
