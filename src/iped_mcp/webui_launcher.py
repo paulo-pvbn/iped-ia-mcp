@@ -498,7 +498,7 @@ def install_open_webui(package: str = "open-webui") -> int:
     if package == "open-webui" and not OPENWEBUI_EXE.is_file():
         say("ERRO: instalou, mas não achei o open-webui.exe no ambiente.", err=True)
         return 1
-    say("Open WebUI instalado. Agora clique em 'Chat com IA'.")
+    say("Open WebUI instalado. Agora inicie o chat com a IA.")
     return 0
 
 
