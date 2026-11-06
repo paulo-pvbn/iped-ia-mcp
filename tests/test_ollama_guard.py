@@ -1,5 +1,5 @@
-import urllib.error
 import json
+import urllib.error
 import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -59,7 +59,7 @@ def test_zero_ctx_disables() -> None:
     assert out is msgs
 
 
-def start_fake_ollama(seen: list) -> HTTPServer:
+def start_fake_ollama(seen: list, max_chars: int | None = None, eval_count: int | None = None) -> HTTPServer:
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a) -> None:
             pass
@@ -72,7 +72,14 @@ def start_fake_ollama(seen: list) -> HTTPServer:
 
         def do_POST(self) -> None:  # noqa: N802
             body = self.rfile.read(int(self.headers["Content-Length"]))
-            seen.append(json.loads(body))
+            payload = json.loads(body)
+            seen.append(payload)
+            sent_chars = sum(len(m.get("content") or "") for m in payload.get("messages", []))
+            if max_chars is not None and self.path == "/api/chat" and sent_chars > max_chars:  # tokenizador "real" mais apertado
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b'{"error": "No user query found in messages."}')
+                return
             if self.path == "/api/boom":
                 self.send_response(500)
                 self.end_headers()
@@ -84,7 +91,8 @@ def start_fake_ollama(seen: list) -> HTTPServer:
             for part in ("a", "b"):
                 self.wfile.write((json.dumps({"message": {"content": part}, "done": False}) + "\n").encode())
                 self.wfile.flush()
-            self.wfile.write(b'{"done": true}\n')
+            final = {"done": True} if eval_count is None else {"done": True, "prompt_eval_count": eval_count}
+            self.wfile.write(json.dumps(final).encode() + b"\n")
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -147,3 +155,72 @@ def test_guard_reports_unreachable_ollama() -> None:
         assert any("não respondeu" in line for line in logs)
     finally:
         guard.stop()
+
+
+def test_ratio_makes_estimate_more_conservative() -> None:
+    msgs = convo(8, 3000)
+    _, base = fit_messages(msgs, 16384)
+    _, strict = fit_messages(msgs, 16384, ratio=2.0)
+    assert strict["tokens"] == 2 * base["tokens"]
+    tools = [{"type": "function", "function": {"name": "t", "description": "d" * 3000}}]
+    assert fit_messages([], 16384, tools, ratio=2.0)[1]["limit"] < fit_messages([], 16384, tools)[1]["limit"]
+    assert strict["after"] <= strict["limit"] or strict["omitted"] > 0
+
+
+def test_guard_retries_when_ollama_rejects_and_remembers() -> None:
+    seen: list = []
+    fake = start_fake_ollama(seen, max_chars=20000)  # o Ollama "real" aceita bem menos do que a estimativa permite
+    logs: list[str] = []
+    guard = OllamaGuard(f"http://127.0.0.1:{fake.server_address[1]}", default_ctx=16384, log=logs.append).start()
+    try:
+        out = post(guard.url + "/api/chat", {"model": "m", "messages": convo(12, 3000), "stream": True})
+        assert b'"done": true' in out  # acabou respondendo, sem devolver o erro ao Open WebUI
+        assert len(seen) >= 2 and sent_chars(seen[-1]) <= 20000 < sent_chars(seen[0])
+        assert seen[-1]["messages"][1]["content"] == "PERGUNTA"
+        assert guard.ratios["m"] > 1.0 and any("refazendo" in line for line in logs)
+        before = len(seen)
+        post(guard.url + "/api/chat", {"model": "m", "messages": convo(12, 3000), "stream": True})
+        assert len(seen) - before == 1  # a próxima chamada já começa com a margem aprendida
+    finally:
+        guard.stop()
+        fake.shutdown()
+
+
+def test_guard_gives_up_after_max_retries() -> None:
+    seen: list = []
+    fake = start_fake_ollama(seen, max_chars=1)  # nunca cabe
+    logs: list[str] = []
+    guard = OllamaGuard(f"http://127.0.0.1:{fake.server_address[1]}", log=logs.append).start()
+    try:
+        try:
+            post(guard.url + "/api/chat", {"model": "m", "messages": convo(2, 100)})
+            raise AssertionError("era para falhar")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 500
+        assert len(seen) == 4  # 1 chamada + 3 tentativas
+    finally:
+        guard.stop()
+        fake.shutdown()
+
+
+def test_guard_learns_from_prompt_eval_count_but_never_loosens() -> None:
+    seen: list = []
+    fake = start_fake_ollama(seen, eval_count=20000)  # o Ollama diz ter lido muito mais do que a estimativa
+    logs: list[str] = []
+    guard = OllamaGuard(f"http://127.0.0.1:{fake.server_address[1]}", log=logs.append).start()
+    try:
+        post(guard.url + "/api/chat", {"model": "m", "messages": convo(2, 300), "stream": True})
+        learned = guard.ratios["m"]
+        assert learned > 1.5 and any("Estimativa corrigida" in line for line in logs)
+        fake.shutdown()
+        low = start_fake_ollama(seen, eval_count=5)  # cache de prompt: contagem baixa não pode afrouxar
+        guard.up_port = low.server_address[1]
+        post(guard.url + "/api/chat", {"model": "m", "messages": convo(2, 300), "stream": True})
+        assert guard.ratios["m"] == learned
+        low.shutdown()
+    finally:
+        guard.stop()
+
+
+def sent_chars(payload: dict) -> int:
+    return sum(len(m.get("content") or "") for m in payload["messages"])
