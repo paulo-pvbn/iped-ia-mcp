@@ -268,6 +268,11 @@ in messages". Cada chamada vira uma linha no console, por exemplo `[contexto] ch
 aparecem ali, com o texto original. O Open WebUI é reconfigurado a cada execução para usar a guarda; se o Ollama estiver
 em outra máquina, `--ollama-url` continua valendo (a guarda repassa para ele).
 
+**Autocorreção (v1.0.2).** A conta de tokens da guarda é uma estimativa e pode subestimar (português, JSON, caminhos). Por isso
+ela confere com o Ollama: se vier "No user query found", **refaz a chamada com mais margem** (até 3 vezes; o erro ocorre antes
+de gerar, então é rápido) e lembra o fator para as próximas; quando o Ollama informa quantos tokens leu, a guarda compara com a
+estimativa e só aperta o limite, nunca afrouxa. No console: `Ollama leu 14200 tokens (estimei ~9800; relação 1.45)`.
+
 **Resultados que já se explicam.** `search` devolve, para os primeiros resultados (`preview`, padrão 8), o nome, o caminho,
 a data e o **trecho onde o termo aparece**, buscados no próprio servidor. O modelo julga a relevância sem uma chamada
 `doc_info` por item e sem ler o documento inteiro.
