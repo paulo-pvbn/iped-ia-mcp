@@ -5,19 +5,19 @@ from iped_mcp import deps as dp
 
 class Fake(dp.Env):
     def __init__(self, files=(), have=(), models=None, python="/usr/bin/python3", webui=False, vc=True, gpu=("RTX", 8.0), java=None, ollama=None):
-        self.files, self.have, self.models, self.py = {str(f) for f in files}, set(have), models, python
+        self.files, self.have, self.models, self.py = {Path(f) for f in files}, set(have), models, python
         self.webui, self.vc, self._gpu, self.java, self.ollama = webui, vc, gpu, java, ollama
 
     def which(self, name):
         return {"java": self.java}.get(name)
 
     def is_file(self, path):
-        return str(path) in self.files
+        return Path(path) in self.files
 
     def find_files(self, root, pattern, depth=4):
         import fnmatch
 
-        return [Path(f) for f in self.files if f.startswith(str(root)) and fnmatch.fnmatch(Path(f).name.lower(), pattern.lower())]
+        return [f for f in self.files if f.is_relative_to(Path(root)) and fnmatch.fnmatch(f.name.lower(), pattern.lower())]
 
     def path_dirs(self):
         return []
