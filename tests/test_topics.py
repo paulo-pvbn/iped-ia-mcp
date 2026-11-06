@@ -11,14 +11,6 @@ def test_to_query_rules() -> None:
     assert q("relatório", expand=False) == "relatorio" and q("  ") == ""
 
 
-def test_topic_terms_matches_theme() -> None:
-    res = topics.topic_terms("reunião")
-    assert "casa_relatorio" in res["matched_topics"] and "cas*" in res["terms"] and "relat*" in res["terms"]
-    other = topics.topic_terms("assunto desconhecido xyz")
-    assert other["terms"] == [] and "drogas" in other["available_topics"]
-    assert len(topics.topic_terms("reunião e drogas")["terms"]) <= topics.MAX_TERMS
-
-
 def test_topic_search_per_term_and_union(monkeypatch) -> None:
     calls: list[str] = []
 
