@@ -1,12 +1,9 @@
-"""Busca temática: dá a modelos locais pequenos o que eles não fazem sozinhos.
+"""Busca de vários termos de uma vez, sem vocabulário pré-definido.
 
 O `search` do IPED casa a palavra EXATA (comprar não casa comprou). Um modelo pequeno
-costuma tentar uma frase literal, receber 0 e concluir que "não há nada". Estas duas tools evitam isso:
-
-- `topic_terms(topic)`: famílias de termos (português/inglês, com radicais `radical*`) para temas comuns.
-  São HIPÓTESES de busca, não fatos sobre o caso.
-- `topic_search(source_id, terms)`: roda CADA termo como consulta separada (com radical automático em
-  palavras longas) e informa a contagem por termo e a união; zero resultado não prova ausência.
+costuma tentar uma frase literal, receber 0 e concluir que "não há nada". `topic_search` roda CADA termo que o
+próprio modelo escolheu como consulta separada (com radical automático em palavras longas) e informa a contagem
+por termo e a união. Não há lista de temas nem de sinônimos: quem decide o que procurar é o modelo/analista.
 """
 
 from __future__ import annotations
@@ -17,10 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 MAX_TERMS = 25
-
-# tema -> (palavras que o identificam, termos). `x*` = radical (prefixo); "a b" = frase exata.
-TOPICS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
-
 
 def fold(text: str) -> str:
     """Minúsculas e sem acentos (o IPED indexa sem acentos; curingas não passam pelo analisador)."""
@@ -45,34 +38,6 @@ def to_query(term: str, expand: bool = True) -> str:
     return f"{stem}*" if len(stem) >= 4 else word
 
 
-def topic_terms(topic: str) -> dict[str, Any]:
-    """Famílias de termos para um tema (português e inglês, radicais `x*`). São hipóteses de busca, não fatos.
-
-    Use ANTES de buscar um tema: passe o resultado para topic_search. Se o tema não estiver no catálogo,
-    devolve os temas disponíveis; então invente você mesmo 10 a 20 termos (sinônimos, gírias, inglês, radicais).
-
-    Args:
-        topic: tema em linguagem livre (ex.: "reunião", "contrato").
-    """
-    wanted = fold(topic)
-    hits = [name for name, (triggers, _t) in TOPICS.items() if any(t in wanted for t in triggers)]
-    if not hits:
-        return {
-            "matched_topics": [],
-            "terms": [],
-            "available_topics": sorted(TOPICS),
-            "note": "Tema fora do catálogo: monte 10 a 20 termos (sinônimos, gírias, inglês, radicais com *) e use topic_search.",
-        }
-    terms: list[str] = []
-    for name in hits:
-        terms += [t for t in TOPICS[name][1] if t not in terms]
-    return {
-        "matched_topics": hits,
-        "terms": terms[:MAX_TERMS],
-        "note": "Hipóteses de busca, não fatos sobre o caso. Passe para topic_search; leia os itens (doc_info/doc_text) antes de afirmar algo.",
-    }
-
-
 def topic_search(
     source_id: str,
     terms: list[str],
@@ -84,11 +49,12 @@ def topic_search(
 
     Resolve o problema do search exato (comprar não casa comprou): palavras longas viram radical (comprou -> compro*), "duas palavras" vira frase exata e x* / x? são respeitados. Informa quais termos acharam e
     quais não, e o total da união. Zero resultado só vale para as consultas executadas; não prova ausência.
-    Em seguida leia os melhores itens com iped_doc_info e iped_doc_text antes de afirmar qualquer coisa.
+    Escolha o vocabulário você mesmo; depois leia os melhores itens com iped_doc_info e iped_doc_text
+    antes de afirmar algo.
 
     Args:
         source_id: source no IPED (veja iped_list_sources).
-        terms: até 25 termos (use o resultado de iped_topic_terms ou os seus próprios sinônimos).
+        terms: até 25 termos que VOCÊ escolheu (flexões, sinônimos, gírias, inglês, radicais com *).
         expand: se true, palavras de 5+ letras ganham radical automático.
         limit_per_term: IDs de amostra por termo (1 a 20).
         extra_filters: filtros de campo para todos os termos (ex.: ["ext:txt"]).
@@ -96,7 +62,7 @@ def topic_search(
     from iped_mcp.core.tool import search
 
     if not terms:
-        raise ValueError("'terms' não pode ser vazio (use iped_topic_terms ou liste sinônimos).")
+        raise ValueError("'terms' não pode ser vazio (liste os termos que você escolheu: flexões, sinônimos, gírias, inglês).")
     if not 1 <= limit_per_term <= 20:
         raise ValueError("limit_per_term deve estar entre 1 e 20.")
     pairs: list[tuple[str, str]] = []
