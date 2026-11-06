@@ -252,3 +252,31 @@ def test_catalog_matches_server_and_filter_is_exact() -> None:
     assert _effective(tc.build_filter([], names), names) == set()
     assert tc.tokens(tc.NAMES) > tc.tokens(tc.DEFAULT) > 0
     assert tc.normalize("search, doc_info ,inexistente,search") == ["search", "doc_info"]
+
+
+def test_finish_open_webui_waits_for_existing_instance(monkeypatch) -> None:
+    """Se o nosso Open WebUI sai porque a porta já tem outro, espera o antigo ficar pronto (e abre o navegador)."""
+    import threading
+    import time
+
+    from iped_mcp import webui_launcher as wl
+
+    class Dead:
+        returncode = 1
+
+        def poll(self) -> int:
+            return 1
+
+    state = {"calls": 0}
+    opened = threading.Event()
+
+    def healthy(_url: str) -> bool:
+        state["calls"] += 1
+        return state["calls"] >= 3
+
+    monkeypatch.setattr(wl, "_healthy", healthy)
+    monkeypatch.setattr(wl, "port_open", lambda *_a: True)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    monkeypatch.setattr("webbrowser.open", lambda _u: opened.set())
+    wl.finish_open_webui("http://127.0.0.1:3737", 3737, None, Dead())
+    assert opened.wait(5), "não chegou a abrir o navegador (a thread quebrou?)"
