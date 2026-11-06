@@ -477,8 +477,12 @@ def thumb_export(source_id: str, doc_id: int, dest_dir: str) -> dict[str, Any]:
 
 
 def register(mcp: FastMCP) -> None:
+    from iped_mcp.core.topics import topic_search, topic_terms
+
     mcp.add_tool(list_sources)
     mcp.add_tool(search)
+    mcp.add_tool(topic_terms)
+    mcp.add_tool(topic_search)
     mcp.add_tool(doc_info)
     mcp.add_tool(doc_text)
     mcp.add_tool(doc_export)
