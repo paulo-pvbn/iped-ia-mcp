@@ -796,7 +796,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             except Exception:  # noqa: BLE001
                 pass
             if not self.vars["modelo"].get() and models:
-                self.vars["modelo"].set(next((m for m in models if "ipediar" in m.lower()), models[0]))
+                self.vars["modelo"].set(models[0])
 
         self.root.after(0, apply)
 

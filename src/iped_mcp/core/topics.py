@@ -50,8 +50,8 @@ def topic_search(
     Resolve o problema do search exato (comprar não casa comprou): palavras longas viram radical (comprou ->
     compro*), "duas palavras" vira frase exata e x* / x? são respeitados. Informa quais termos acharam e
     quais não, e o total da união. Zero resultado só vale para as consultas executadas; não prova ausência.
-    Escolha o vocabulário você mesmo, pensando como um investigador; depois leia os melhores itens com
-    iped_doc_info e iped_doc_text e siga as pistas (nomes, números, lugares, datas) antes de afirmar algo.
+    Escolha o vocabulário você mesmo; depois leia os melhores itens com iped_doc_info e iped_doc_text
+    antes de afirmar algo.
 
     Args:
         source_id: source no IPED (veja iped_list_sources).

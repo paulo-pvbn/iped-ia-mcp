@@ -2,7 +2,7 @@ from iped_mcp import hardware as hw
 
 GB = 1024**3
 TAGS = [
-    {"name": "qwen3.8:27b-ipediar8k", "size": int(16.5 * GB), "details": {"parameter_size": "27B"}},
+    {"name": "qwen3:27b-modelo8k", "size": int(16.5 * GB), "details": {"parameter_size": "27B"}},
     {"name": "qwen3:8b", "size": int(5.2 * GB), "details": {"parameter_size": "8.2B"}},
     {"name": "qwen3:4b", "size": int(2.6 * GB), "details": {"parameter_size": "4.0B"}},
 ]
@@ -22,7 +22,7 @@ def test_parse_video_controllers() -> None:
 
 def test_fit_on_8gb_recommends_8b_and_flags_27b() -> None:
     fits = {f.name: f for f in hw.fit_models(TAGS, 8.0, 16384)}
-    assert fits["qwen3.8:27b-ipediar8k"].fit == "cpu"
+    assert fits["qwen3:27b-modelo8k"].fit == "cpu"
     assert fits["qwen3:4b"].fit == "gpu"
     rec = hw.recommend(list(fits.values()))
     assert rec.name == "qwen3:8b" and rec.ctx == 16384 and rec.q8  # 8B em 8 GB: cabe com cache q8

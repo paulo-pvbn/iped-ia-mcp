@@ -171,8 +171,8 @@ Este fork acrescenta, **sem alterar as tools originais**:
   `bookmarks_remove_from_file`. Criar e acrescentar continuam. O servidor (`python main.py`) só as liga com `IPED_MCP_ALLOW_DESTRUCTIVE=1`; **o launcher e a janela do programa as mantêm sempre desligadas** (remover marcadores se faz no próprio IPED).
 - **Auditoria em cadeia de hash** (`audit/iped-mcp-audit.jsonl`): uma linha por chamada (tool, argumentos,
   ok/erro, duração), sem o conteúdo devolvido. Confira com `python -m iped_mcp.security`.
-- **Prompt do analista** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): cole nas
-  instruções do modelo no Open WebUI.
+- **Instruções do modelo** (`prompts/analista.md`, também exposto como prompt MCP `analista_forense`): um texto curto
+  e genérico. Para usar as suas, salve-as como `prompt.md` em `%APPDATA%\iped-ia-mcp`; esse arquivo tem prioridade e fica só no seu computador.
 - **Launcher / executável** `iped-ia-mcp.exe`: sobe as Web APIs do IPED (só em 127.0.0.1), o MCP com token e o
   Open WebUI. Sem argumentos abre a janela, onde cada usuário informa as suas pastas (nada vem preenchido). O botão
   **Chat com IA** procura o Open WebUI e, se faltar, oferece instalar um ambiente próprio em `%APPDATA%\iped-ia-mcp\openwebui` (precisa de Python 3.11 e
@@ -228,7 +228,7 @@ preferencialmente WSL2 — foi testado com o opencode no mesmo ambiente WSL2.
 
 O **Chat com IA** sobe o Open WebUI **sem tela de login, só em `127.0.0.1`** (dados em `%APPDATA%\iped-ia-mcp\openwebui\data-local`),
 cadastra sozinho o servidor MCP do IPED (URL e token da execução), cria o modelo **Analista IPED** (sobre o modelo do
-Ollama escolhido na janela, com o prompt do analista e as ferramentas do IPED já ligadas) e abre o navegador. Validado
+Ollama escolhido na janela, com as instruções do modelo e as ferramentas do IPED já ligadas) e abre o navegador. Validado
 contra o Open WebUI 0.13; versões muito diferentes podem exigir cadastro manual (o programa avisa).
 
 O Open WebUI do programa usa a porta **3737** (e não a 3000): outro endereço evita que o navegador reaproveite páginas,
@@ -256,8 +256,7 @@ próximo Chat com IA. As contas são estimativas; para 8 GB de VRAM costuma serv
 **Busca de vários termos (`topic_search`).** A busca livre do IPED casa a palavra **exata** (`comprar` não casa `comprou`), e modelos pequenos tendem a tentar uma frase literal, receber zero e concluir que não há
 nada. `topic_search` roda cada termo **que o próprio modelo escolheu** como consulta separada (palavras longas ganham
 radical automático), informando a contagem por termo e a união. Não há lista de temas nem de sinônimos embutida: quem decide
-o que procurar é o modelo/analista, e o prompt pede um método investigativo (hipóteses, seguir pistas, iterar, nunca
-concluir ausência por uma busca vazia).
+o que procurar é o modelo.
 
 **Guarda de contexto (v0.6.0).** Entre o Open WebUI e o Ollama o programa sobe um pequeno intermediário local
 (`127.0.0.1:11435`, só biblioteca padrão). Toda chamada de chat passa por ele: se a conversa (prompt + ferramentas +

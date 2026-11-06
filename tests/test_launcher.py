@@ -54,15 +54,15 @@ def test_source_json_is_ascii_even_with_accents(tmp_path):
     """O Java 11/Windows lê o arquivo em cp1252: o caminho com acento tem de ir como \\uXXXX."""
     import json
 
-    text = json.dumps([{"id": "x", "path": "D:\\Polícia Federal\\Exercício"}], ensure_ascii=True)
-    assert text.isascii() and "\\u00ed" in text
-    assert json.loads(text)[0]["path"] == "D:\\Polícia Federal\\Exercício"
+    text = json.dumps([{"id": "x", "path": "D:\\Pasta Exemplo\\Relatório"}], ensure_ascii=True)
+    assert text.isascii() and "\\u00f3" in text
+    assert json.loads(text)[0]["path"] == "D:\\Pasta Exemplo\\Relatório"
     src = Path(__file__).resolve().parent.parent / "web-api-launcher.py"
     assert "ensure_ascii=True" in src.read_text(encoding="utf-8")
 
 
 def test_cases_found_up_to_three_levels_and_ids_without_accents(tmp_path):
-    (tmp_path / "Polícia Federal" / "Caso Ação" / "iped").mkdir(parents=True)
+    (tmp_path / "Pasta Exemplo" / "Caso Ação" / "iped").mkdir(parents=True)
     (tmp_path / "outro" / "iped").mkdir(parents=True)
     ids = [s["id"] for s in launcher.sources_from_cases_dir(tmp_path)]
     assert ids == ["outro", "Caso_Acao"] or ids == ["Caso_Acao", "outro"]
@@ -307,3 +307,12 @@ def test_text_chars_scale_with_context(monkeypatch) -> None:
         monkeypatch.delenv("IPED_MCP_TEXT_CHARS")
         importlib.reload(tool)
     assert inspect.signature(tool.doc_text).parameters["max_chars"].default == 20000
+
+
+def test_user_prompt_file_has_priority(tmp_path, monkeypatch):
+    monkeypatch.setattr(launcher, "CONFIG_PATH", tmp_path / "config.json")
+    text, where = launcher.load_prompt()
+    assert text and where is not None and where.name == "analista.md"  # padrão do pacote
+    (tmp_path / "prompt.md").write_text("minhas instruções", encoding="utf-8")
+    text, where = launcher.load_prompt()
+    assert text == "minhas instruções" and where == tmp_path / "prompt.md"

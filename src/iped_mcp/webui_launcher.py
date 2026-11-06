@@ -502,6 +502,17 @@ def install_open_webui(package: str = "open-webui") -> int:
     return 0
 
 
+def load_prompt() -> tuple[str, Path | None]:
+    """Instruções do modelo: o `prompt.md` do próprio usuário (na pasta de dados do programa) ou o padrão do pacote."""
+    for candidate in (CONFIG_PATH.parent / "prompt.md", ROOT / "prompts" / "analista.md"):
+        try:
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8"), candidate
+        except OSError:
+            continue
+    return "", None
+
+
 def load_config() -> dict[str, str]:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -684,7 +695,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         guards.append(guard)
         say(f"   Guarda de contexto no ar em {guard.url} (Ollama em {args.ollama_url}).")
         webui_url = f"http://127.0.0.1:{args.webui_port}"
-        prompt_text = (ROOT / "prompts" / "analista.md").read_text(encoding="utf-8") if (ROOT / "prompts" / "analista.md").is_file() else ""
+        prompt_text, prompt_file = load_prompt()
         setup = {
             "mcp_url": f"http://127.0.0.1:{args.mcp_port}/mcp",
             "mcp_token": token or "",
@@ -723,13 +734,12 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                     say(f"      {py} ({python_version(py) or '?'})")
                 say("      Use 'Localizar Open WebUI' para apontar o open-webui.exe, ou 'Instalar Open WebUI'.")
 
-        prompt_file = ROOT / "prompts" / "analista.md"
         say("\n=== PRONTO ===")
         say(f"MCP:        http://127.0.0.1:{args.mcp_port}/mcp")
         say(f"Token:      {token or '(sem token)'}  -> Authorization: Bearer <token>")
         say(f"Open WebUI: {webui_url}")
         say("O Open WebUI abre sozinho já configurado (modelo 'Analista IPED'); se a configuração automática falhar, aparece um aviso.")
-        say(f"Prompt do analista (cole nas instruções do modelo): {prompt_file}")
+        say(f"Instruções do modelo: {prompt_file or '(nenhuma)'}")
         say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
         say("Ctrl+C encerra tudo.")
         names = {id(launcher): "Web APIs do IPED", id(mcp): "servidor MCP"}
