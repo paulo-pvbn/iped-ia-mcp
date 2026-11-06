@@ -307,3 +307,12 @@ def test_text_chars_scale_with_context(monkeypatch) -> None:
         monkeypatch.delenv("IPED_MCP_TEXT_CHARS")
         importlib.reload(tool)
     assert inspect.signature(tool.doc_text).parameters["max_chars"].default == 20000
+
+
+def test_user_prompt_file_has_priority(tmp_path, monkeypatch):
+    monkeypatch.setattr(launcher, "CONFIG_PATH", tmp_path / "config.json")
+    text, where = launcher.load_prompt()
+    assert text and where is not None and where.name == "analista.md"  # padrão do pacote
+    (tmp_path / "prompt.md").write_text("minhas instruções", encoding="utf-8")
+    text, where = launcher.load_prompt()
+    assert text == "minhas instruções" and where == tmp_path / "prompt.md"

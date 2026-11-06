@@ -5,8 +5,8 @@ def test_to_query_rules() -> None:
     q = topics.to_query
     assert q("relatório") == "relatori*" and q("entregue") == "entregu*"
     assert q("casa") == "casa"  # curta: sem radical automático
-    assert q("cas*") == "cas*" and q("Cas?") == "fugi?"
-    assert q("quebra de segurança") == '"quebra de seguranca"'
+    assert q("cas*") == "cas*" and q("Cas?") == "cas?"
+    assert q("política de segurança") == '"politica de seguranca"'
     assert q('"pasta compartilhada"') == '"pasta compartilhada"'
     assert q("relatório", expand=False) == "relatorio" and q("  ") == ""
 
