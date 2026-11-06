@@ -279,6 +279,11 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 NUM_CTX = 16384
 
 
+def text_chars_for(num_ctx: int) -> int:
+    """Caracteres por leitura de documento: ~20% do contexto (1 token ~ 3 caracteres, e o resto fica para a conversa)."""
+    return max(1500, min(20000, int(num_ctx * 0.2) // 500 * 500))
+
+
 def provision_open_webui(
     base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None, num_ctx: int = 0
 ) -> tuple[bool, str]:
@@ -651,6 +656,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
         env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)  # remover marcadores se faz no próprio IPED: tools destrutivas sempre desligadas
         env.pop("IPED_URL", None)  # IPED_URL e IPED_ENDPOINTS juntas são erro no MCP
+        env["IPED_MCP_TEXT_CHARS"] = str(text_chars_for(int(getattr(args, "num_ctx", 0) or NUM_CTX)))  # leituras curtas: cabem no contexto
         env["FASTMCP_CHECK_FOR_UPDATES"] = "off"  # sem consulta à internet na subida (pode demorar em rede restrita)
         if token:
             env["IPED_MCP_TOKEN"] = token
