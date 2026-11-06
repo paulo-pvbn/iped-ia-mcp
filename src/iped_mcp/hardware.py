@@ -219,7 +219,7 @@ def report(hw: Hardware, fits: list[ModelFit], loaded: list[tuple[str, float]], 
         "Condições ideais:",
         "  - Fechar programas que usam a GPU (navegador com aceleração, jogos, VMs) antes de conversar.",
         "  - No Ollama (reinicie-o depois): OLLAMA_FLASH_ATTENTION=1 e OLLAMA_KV_CACHE_TYPE=q8_0 reduzem o cache de contexto quase pela metade.",
-        "  - Poucas ferramentas ligadas (botão Ferramentas da IA...): cada uma gasta contexto.",
+        "  - Poucas ferramentas ligadas (menu IA > Ferramentas da IA…): cada uma gasta contexto.",
         "  - Estes números são estimativas; o '% na GPU' medido pelo Ollama é o que vale.",
     ]
     return "\n".join(lines)

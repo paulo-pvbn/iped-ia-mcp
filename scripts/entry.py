@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         tools = asyncio.run(server.mcp.list_tools())
         prompt = HERE / "prompts" / "analista.md"
         ok = len(tools) >= 30 and prompt.is_file() and (HERE / "web-api-launcher.py").is_file()
-        from iped_mcp import gui  # noqa: F401  (a janela é importável)
+        from iped_mcp import gui, gui_app, ui_theme, wizard  # noqa: F401  (a janela é importável)
 
         if sys.platform in ("win32", "darwin"):
             import tkinter  # noqa: F401  (tem de estar empacotado)
