@@ -26,6 +26,9 @@ from iped_mcp.router import get_router
 # Busca genérica pode ser match-all (~66 s no source de teste); timeout padrão
 # (10 s) não basta. Mesma ordem de grandeza de _MATCH_ALL_TIMEOUT em regex/scan.py.
 _SEARCH_TIMEOUT = 120.0
+# Tamanho padrão de leitura de texto. No chat com modelo local o launcher reduz (IPED_MCP_TEXT_CHARS):
+# 20000 caracteres são ~7 mil tokens por leitura e estouram o contexto do modelo.
+DEFAULT_TEXT_CHARS = max(500, min(100000, int(os.environ.get("IPED_MCP_TEXT_CHARS", "20000") or 20000)))
 _CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 _SEARCH_HINT = (
@@ -282,7 +285,7 @@ def doc_info(
 def doc_text(
     source_id: str,
     doc_id: int,
-    max_chars: int = 20000,
+    max_chars: int = DEFAULT_TEXT_CHARS,
     offset: int = 0,
 ) -> dict[str, Any]:
     """Texto extraído de um documento, truncado e paginado (fase de conteúdo).
@@ -295,7 +298,7 @@ def doc_text(
     Args:
         source_id: source no IPED (veja iped_list_sources).
         doc_id: id do documento (ex.: vindo de iped_search).
-        max_chars: máximo de caracteres a devolver (padrão 20000, teto 100000).
+        max_chars: máximo de caracteres a devolver (padrão curto para não encher o contexto; teto 100000).
         offset: caractere inicial (paginação; padrão 0).
     """
     if not 1 <= max_chars <= 100000:

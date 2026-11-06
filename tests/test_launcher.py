@@ -280,3 +280,24 @@ def test_finish_open_webui_waits_for_existing_instance(monkeypatch) -> None:
     monkeypatch.setattr("webbrowser.open", lambda _u: opened.set())
     wl.finish_open_webui("http://127.0.0.1:3737", 3737, None, Dead())
     assert opened.wait(5), "não chegou a abrir o navegador (a thread quebrou?)"
+
+
+def test_text_chars_scale_with_context(monkeypatch) -> None:
+    import importlib
+
+    from iped_mcp import webui_launcher as wl
+
+    assert wl.text_chars_for(16384) == 3000 and wl.text_chars_for(32768) == 6500
+    assert wl.text_chars_for(1024) == 1500 and wl.text_chars_for(1_000_000) == 20000
+    monkeypatch.setenv("IPED_MCP_TEXT_CHARS", "3000")
+    from iped_mcp.core import tool
+
+    importlib.reload(tool)
+    try:
+        import inspect
+
+        assert inspect.signature(tool.doc_text).parameters["max_chars"].default == 3000
+    finally:
+        monkeypatch.delenv("IPED_MCP_TEXT_CHARS")
+        importlib.reload(tool)
+    assert inspect.signature(tool.doc_text).parameters["max_chars"].default == 20000
