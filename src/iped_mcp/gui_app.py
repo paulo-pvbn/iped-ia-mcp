@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 
 from iped_mcp import deps, gui, progress, sysmon, ui_theme, widgets
+from iped_mcp import installers as ins
+from iped_mcp import tuning
 from iped_mcp import hardware as hw
 from iped_mcp import tools_catalog as tc
 from iped_mcp import webui_launcher as wl
@@ -175,7 +177,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         ttk.Frame(header, width=24).pack(side="left")
         self._menu(header, "Caso", [(t, lambda c=c: self.jump(c)) for t, c in wz.TASKS.items()])
         self._menu(header, "IPED", [("Dependências…", self.show_dependencies), ("Instalar o que falta (assistido)…", lambda: self.show_dependencies(auto=True))])
-        self._menu(header, "IA", [("Ferramentas da IA…", self.pick_tools), ("Hardware e modelo…", self.show_hardware)])
+        self._menu(header, "IA", [("Ferramentas da IA…", self.pick_tools), ("Desempenho e contexto…", self.show_hardware)])
         self._menu(header, "Ajuda", [("Sobre o programa", self.about)])
         ttk.Separator(root).grid(row=0, column=0, columnspan=2, sticky="sew")
 
@@ -1004,7 +1006,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     def show_hardware(self) -> None:
         tk, ttk = self.tk, self.ttk
-        win = self.toplevel("Hardware e modelo recomendado", "780x560")
+        win = self.toplevel("Desempenho e contexto", "820x680")
         box = tk.Text(win, wrap="word", bg=P["surface"], fg=P["text"], relief="flat", font=self.f["body"], padx=16, pady=14, highlightthickness=0)
         box.pack(fill="both", expand=True, padx=20, pady=(20, 8))
         box.insert("1.0", "Lendo GPU, memória e modelos do Ollama…")
@@ -1023,10 +1025,58 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         def fill(found: hw.Hardware, fits: list[hw.ModelFit], text: str) -> None:
             if not win.winfo_exists():
                 return
+            cfg = wl.load_config()
+            adv = tuning.advise(found, fits, self.vars["modelo"].get() or cfg.get("modelo", ""))
+            extra = "\n\nRECOMENDAÇÃO DE DESEMPENHO\n" + "\n".join(f"  - {x}" for x in adv.lines)
+            extra += f"\n  - Janela de contexto recomendada: {adv.num_ctx}.\n  - Variáveis do Ollama: " + "; ".join(f"{k}={v}" for k, v in adv.env.items())
+            extra += ("\n  - O Open WebUI é ajustado sozinho ao iniciar o chat: contexto escolhido, modelo mantido na memória e chamadas extras (título, etiquetas, sugestões) desligadas."
+                      "\n  - Aplicar as variáveis grava no perfil do Windows e reinicia o Ollama; esse passo não foi validado na sua máquina.")  # fmt: skip
             box.configure(state="normal")
             box.delete("1.0", "end")
-            box.insert("1.0", text)
+            box.insert("1.0", text + extra)
             box.configure(state="disabled")
+            ctx_var = tk.StringVar(value=str(cfg.get("num_ctx") or adv.num_ctx))
+            ttk.Label(bar, text="Janela de contexto").pack(side="left", padx=(0, 6))
+            ttk.Combobox(bar, textvariable=ctx_var, values=[str(c) for c in tuning.CTX_OPTIONS], width=7, state="readonly").pack(side="left")
+            note = tk.StringVar(value="")
+            ttk.Label(win, textvariable=note, style="Muted.TLabel", wraplength=760, justify="left").pack(before=bar, anchor="w", padx=20, pady=(0, 6))
+            acts = ttk.Frame(win)
+            acts.pack(before=bar, fill="x", padx=20, pady=(0, 6))
+
+            def save_ctx() -> None:
+                c = wl.load_config()
+                c["num_ctx"] = ctx_var.get()
+                wl.save_config(c)
+                note.set(f"Contexto {ctx_var.get()} salvo. Vale no próximo chat (pare e inicie o chat de novo).")
+
+            def apply_ollama() -> None:
+                note.set("Gravando variáveis e reiniciando o Ollama…")
+
+                def work2() -> None:
+                    done = tuning.apply_env(adv.env, self.say)
+                    self.root.after(0, lambda: note.set("Ollama reiniciado com os ajustes." if done else "Não consegui aplicar tudo; veja os detalhes técnicos na etapa Executar."))
+
+                threading.Thread(target=work2, daemon=True).start()
+
+            ttk.Button(acts, text="Salvar contexto", command=save_ctx).pack(side="left")
+            ttk.Button(acts, text="Aplicar ajustes no Ollama", command=apply_ollama).pack(side="left", padx=8)
+            if adv.suggested_model:
+
+                def get_model() -> None:
+                    note.set(f"Baixando {adv.suggested_model} (vários GB; veja o andamento nos detalhes técnicos)…")
+
+                    def work3() -> None:
+                        res = deps.run_plan(deps.Plan("pull", (adv.suggested_model,)), self.say)
+                        if res.ok:
+                            self.vars["modelo"].set(adv.suggested_model)
+                            c = wl.load_config()
+                            c["modelo"], c["num_ctx"] = adv.suggested_model, ctx_var.get()
+                            wl.save_config(c)
+                        self.root.after(0, lambda: note.set(f"{adv.suggested_model} pronto e selecionado." if res.ok else f"Falhou: {res.message}"))
+
+                    threading.Thread(target=work3, daemon=True).start()
+
+                ttk.Button(acts, text=f"Baixar {adv.suggested_model}", style="Primary.TButton", command=get_model).pack(side="left")
             rec = hw.recommend(fits)
             if rec and found.vram_gb and rec.fit == "gpu":
 
@@ -1099,7 +1149,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
             threading.Thread(target=work, daemon=True).start()
 
-        def install(plans: list[tuple[str, deps.Plan]]) -> None:
+        def install(plans: list[tuple[deps.Dep, deps.Plan]]) -> None:
             if state["busy"] or not plans:
                 return
             state.update(busy=True, frac=None)
@@ -1110,12 +1160,18 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
             def work() -> None:
                 failed = []
-                for name, plan in plans:
-                    say_line(f"=== {name} ===")
+                for dep, plan in plans:
+                    say_line(f"=== {dep.name} ===")
+                    state["frac"] = None
                     res = deps.run_plan(plan, say_line, lambda f: state.update(frac=f))
-                    if not res.ok:
-                        failed.append(f"{name}: {res.message}")
-                        say_line(res.message)
+                    # o que vale é o programa estar lá depois, não o código de saída do instalador
+                    now = {d.key: d for d in deps.check_all(iped_root)}.get(dep.key)
+                    if now is not None and now.status == deps.OK:
+                        say_line(f"{dep.name}: instalado e verificado.")
+                        continue
+                    reason = res.message or f"o instalador terminou, mas {dep.name} ainda não foi encontrado (talvez seja preciso fechar e abrir este programa)."
+                    failed.append(f"{dep.name}: {reason}")
+                    say_line(reason)
                 state["failed"] = failed
                 state["busy"] = False
                 self.root.after(0, finished)
@@ -1144,7 +1200,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             failed = state.get("failed") or []
             scan()
             if failed:
-                self.messagebox.showwarning(APP_TITLE, "Alguns itens não foram instalados:\n\n" + "\n".join(failed) + "\n\nVeja os detalhes técnicos na etapa Executar.", parent=win)
+                self.messagebox.showwarning(APP_TITLE, "Alguns itens não foram instalados:\n\n" + "\n".join(failed) + f"\n\nO registro completo está em:\n{ins.LOG_PATH}", parent=win)
             else:
                 info.set("Concluído. Se algum item continuar ausente depois de instalar, feche e abra este programa para ele enxergar o novo PATH.")
 
@@ -1188,9 +1244,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 ask_install(todo)
 
         def ask_install(items: list[deps.Dep]) -> None:
-            plans = [(d.name, d.plan) for d in items if d.plan and d.plan.automatic]
-            listing = "\n".join(f"• {n}: {' '.join(p.command)}" for n, p in plans)
-            heavy = any(p.kind in {"openwebui", "pull"} for _n, p in plans)
+            plans = [(d, d.plan) for d in items if d.plan and d.plan.automatic]
+            listing = "\n".join(f"• {d.name}: {' '.join(p.command)}" for d, p in plans)
+            heavy = any(p.kind in {"openwebui", "pull"} for _d, p in plans)
             ok = self.messagebox.askokcancel(
                 APP_TITLE,
                 "Vou instalar:\n\n" + listing + "\n\nPrecisa de internet para baixar" + (" (centenas de MB a alguns GB; pode demorar)" if heavy else "") +

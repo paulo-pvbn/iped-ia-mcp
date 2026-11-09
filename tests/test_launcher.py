@@ -208,6 +208,7 @@ def test_provision_open_webui_against_fake_server():
     assert model["base_model_id"] == "qwen:7b" and model["meta"]["toolIds"] == ["server:mcp:iped"]
     assert model["params"]["system"] == "PROMPT" and model["params"]["function_calling"] == "native"
     assert model["params"]["num_ctx"] >= 16384
+    assert model["params"]["temperature"] == 0.5 and model["params"]["top_p"] == 0.6 and model["params"]["keep_alive"] == "30m"
     assert model["meta"]["capabilities"]["builtin_tools"] is False
     flt = conn["config"]["function_name_filter_list"].split(",")
     assert "list_sources" in flt and "!bookmarks_save_search" in flt
@@ -316,3 +317,23 @@ def test_user_prompt_file_has_priority(tmp_path, monkeypatch):
     (tmp_path / "prompt.md").write_text("minhas instruções", encoding="utf-8")
     text, where = launcher.load_prompt()
     assert text == "minhas instruções" and where == tmp_path / "prompt.md"
+
+
+def test_quiet_background_tasks_only_turns_off_enabled_keys(monkeypatch):
+    sent = []
+    cfg = {"ENABLE_TITLE_GENERATION": True, "ENABLE_TAGS_GENERATION": False, "TASK_MODEL": "", "ENABLE_AUTOCOMPLETE_GENERATION": True}
+
+    def fake_api(method, url, body=None, token=None, timeout=60):
+        if method == "GET":
+            return cfg
+        sent.append(body)
+        return {}
+
+    monkeypatch.setattr(launcher, "_api", fake_api)
+    assert launcher.quiet_background_tasks("http://x", "t") == ["ENABLE_TITLE_GENERATION", "ENABLE_AUTOCOMPLETE_GENERATION"]
+    assert sent[0]["ENABLE_TITLE_GENERATION"] is False and sent[0]["TASK_MODEL"] == "" and "ENABLE_FOLLOW_UP_GENERATION" not in sent[0]
+    sent.clear()
+    cfg.update(ENABLE_TITLE_GENERATION=False, ENABLE_AUTOCOMPLETE_GENERATION=False)
+    assert launcher.quiet_background_tasks("http://x", "t") == [] and sent == []
+    monkeypatch.setattr(launcher, "_api", lambda *a, **k: None)
+    assert launcher.quiet_background_tasks("http://x", "t") == []

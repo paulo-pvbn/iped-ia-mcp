@@ -47,6 +47,22 @@ class Fake(dp.Env):
         return self._gpu
 
 
+class Ready(dp.ins.Ops):
+    """Ollama instalado e respondendo; sem rede nem espera."""
+
+    def __init__(self):
+        super().__init__(lambda _t: None)
+
+    def say(self, text):
+        pass
+
+    def ollama_up(self):
+        return True
+
+    def sleep(self, secs):
+        pass
+
+
 def by_key(deps):
     return {d.key: d for d in deps}
 
@@ -54,21 +70,23 @@ def by_key(deps):
 def test_nothing_installed_everything_required_is_offered():
     d = by_key(dp.check_all("", env=Fake(python=None, gpu=None, vc=False)))
     assert d["iped"].status == dp.MISSING and d["iped"].plan.kind == "manual"
-    assert d["java"].plan.kind == "winget" and not d["java"].plan.validated
-    assert d["ollama"].plan.command[-1] == "Ollama.Ollama"
-    assert d["model"].status == dp.MISSING and d["model"].plan is None  # sem Ollama não dá para baixar modelo
+    assert d["java"].status == dp.OPTIONAL  # sem pasta do IPED não há onde procurar o JRE
+    assert d["ollama"].plan.kind == "ollama" and d["ollama"].plan.command[-1] == "Ollama.Ollama"
+    assert d["model"].status == dp.MISSING and d["model"].plan.kind == "pull"  # o plano inicia o Ollama antes de baixar
     assert d["webui"].plan.kind == "openwebui" and d["py311"].status == dp.OPTIONAL
-    assert d["vcredist"].plan.command[-1] == "Microsoft.VCRedist.2015+.x64"
+    assert d["vcredist"].plan.kind == "vcredist" and d["vcredist"].plan.command[-1] == "Microsoft.VCRedist.2015+.x64"
     assert d["whisper"].detail == "Precisa do Python"
     keys = {x.key for x in dp.installable(list(d.values()))}
-    assert {"java", "ollama", "webui"} <= keys and "iped" not in keys and "model" not in keys
+    order = [x.key for x in dp.installable(list(d.values()))]
+    assert {"ollama", "model", "webui"} <= keys and "iped" not in keys
+    assert order.index("ollama") < order.index("model")  # o Ollama precisa existir antes do modelo
 
 
 def test_installed_things_are_ok_and_python_modules_use_pip_plan():
     root = "/iped"
     files = [f"{root}/iped.jar", f"{root}/jre/bin/java", f"{root}/lib/stanford-corenlp-4.jar", f"{root}/tools/tesseract/tesseract.exe", f"{root}/tools/tesseract/tessdata/eng.traineddata"]
     d = by_key(dp.check_all(root, env=Fake(files=files, have={"numpy"}, models=["qwen3:8b"], webui=True)))
-    assert d["iped"].status == dp.OK and d["java"].detail.startswith("JRE empacotada")
+    assert d["iped"].status == dp.OK and d["java"].status == dp.OK
     assert d["numpy"].status == dp.OK and d["whisper"].status == dp.OPTIONAL
     assert d["whisper"].plan.kind == "pip" and d["whisper"].plan.command[-2:] == ("install", "faster-whisper")
     assert d["corenlp"].status == dp.OK
@@ -97,9 +115,10 @@ def test_parse_pull_line():
 
 def test_run_plan_pull_and_manual():
     log, fr = [], []
-    ok = dp.run_plan(dp.Plan("pull", ("m",)), log.append, fr.append, lines=lambda _m: iter(['{"status":"x","total":10,"completed":5}', '{"status":"success"}']))
+    ready = Ready()
+    ok = dp.run_plan(dp.Plan("pull", ("m",)), log.append, fr.append, lines=lambda _m: iter(['{"status":"x","total":10,"completed":5}', '{"status":"success"}']), ops=ready)
     assert ok.ok and fr == [0.5] and log[-1] == "success"
-    bad = dp.run_plan(dp.Plan("pull", ("m",)), log.append, lines=lambda _m: iter(['{"error":"sem espaço"}']))
+    bad = dp.run_plan(dp.Plan("pull", ("m",)), log.append, lines=lambda _m: iter(['{"error":"sem espaço"}']), ops=ready)
     assert not bad.ok and "sem espaço" in bad.message
     assert not dp.run_plan(dp.Plan("manual", url="u"), log.append).ok
 
@@ -108,7 +127,13 @@ def test_run_plan_command_streams_output(tmp_path):
     import sys
 
     log = []
-    res = dp.run_plan(dp.Plan("pip", (sys.executable, "-c", "print('olá')"), validated=False), log.append)
+    res = dp.run_plan(dp.Plan("pip", (sys.executable, "-c", "print('olá')"), validated=False), log.append, ops=dp.ins.Ops(log.append))
     assert res.ok and "olá" in log and any("não foi validado" in x for x in log)
-    res = dp.run_plan(dp.Plan("winget", (sys.executable, "-c", "import sys;sys.exit(3)")), log.append)
+    res = dp.run_plan(dp.Plan("winget", (sys.executable, "-c", "import sys;sys.exit(3)")), log.append, ops=dp.ins.Ops(log.append))
     assert not res.ok and res.code == 3
+
+
+def test_missing_jre_inside_iped_folder_plans_extraction_there():
+    d = by_key(dp.check_all("/iped", env=Fake(files=["/iped/iped.jar"])))
+    assert d["java"].status == dp.MISSING and d["java"].required and d["java"].plan.kind == "java"
+    assert d["java"].plan.command == (str(Path("/iped") / "jre"),)

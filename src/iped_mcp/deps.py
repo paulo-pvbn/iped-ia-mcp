@@ -19,17 +19,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from iped_mcp import hardware as hw
+from iped_mcp import installers as ins
 from iped_mcp import webui_launcher as wl
 
 OK, MISSING, OPTIONAL, UNKNOWN = "ok", "missing", "optional", "unknown"
 IPED_WIKI = "https://github.com/sepinf-inc/IPED/wiki"
 IPED_RELEASES = "https://github.com/sepinf-inc/IPED/releases"
-WINGET = ["winget", "install", "-e", "--accept-package-agreements", "--accept-source-agreements", "--silent", "--id"]
 
 
 @dataclass(frozen=True)
 class Plan:
-    kind: str  # winget | pip | openwebui | pull | manual
+    kind: str  # winget | pip | openwebui | pull | ollama | java | vcredist | manual
     command: tuple[str, ...] = ()
     note: str = ""
     url: str = ""  # página oficial (para os itens manuais)
@@ -158,8 +158,8 @@ def suggest_model(vram_gb: float | None) -> str:
     return "qwen3:30b"
 
 
-def _winget(package: str, note: str = "", validated: bool = True) -> Plan:
-    return Plan("winget", (*WINGET, package), note or "Instala pelo winget (vem com o Windows 10/11).", validated=validated)
+def _winget(package: str, note: str = "", validated: bool = True, kind: str = "winget") -> Plan:
+    return Plan(kind, tuple(ins.winget_cmd(package)), note or "Tenta o winget e, se falhar, baixa o instalador oficial.", validated=validated)
 
 
 def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", env: Env | None = None) -> list[Dep]:  # noqa: C901
@@ -176,12 +176,12 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
                        plan=Plan("manual", note="Baixe e descompacte o IPED; depois escolha a pasta no assistente.", url=IPED_RELEASES)))  # fmt: skip
     bundled = [root / "jre" / "bin" / n for n in ("java.exe", "java")] if root else []
     if any(env.is_file(p) for p in bundled):
-        out.append(Dep("java", "Java (JRE)", "iped", OK, "JRE empacotada na pasta do IPED", required=True))
-    elif env.which("java"):
-        out.append(Dep("java", "Java (JRE)", "iped", OK, "Java do sistema", required=True))
+        out.append(Dep("java", "Java (JRE do IPED)", "iped", OK, "Pasta jre do IPED", required=True))
+    elif root and env.is_file(root / "iped.jar"):
+        out.append(Dep("java", "Java (JRE do IPED)", "iped", MISSING, "A pasta jre do IPED não tem o Java", required=True, why="O IPED e as Web APIs procuram o Java em <pasta do IPED>\\jre.",
+                       plan=Plan("java", (str(root / "jre"),), "Baixa o JRE 17 (Temurin) e extrai em <pasta do IPED>\\jre; nada existente é sobrescrito.", validated=False)))  # fmt: skip
     else:
-        out.append(Dep("java", "Java (JRE)", "iped", MISSING, "Nenhum Java encontrado", required=True,
-                       plan=_winget("EclipseAdoptium.Temurin.17.JRE", "O IPED costuma trazer um JRE na pasta jre: confira antes. Versão exigida: veja a documentação da sua versão do IPED.", validated=False)))  # fmt: skip
+        out.append(Dep("java", "Java (JRE do IPED)", "iped", OPTIONAL, "Informe antes a pasta do IPED", why="O IPED usa o Java da própria pasta (jre)."))
 
     py = env.python()
     if py:
@@ -233,7 +233,7 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
     elif vc:
         out.append(Dep("vcredist", "Visual C++ 2015-2022 (x64)", "iped", OK, "Instalado", why="Necessário para o MPlayer e outras ferramentas nativas."))
     else:
-        out.append(Dep("vcredist", "Visual C++ 2015-2022 (x64)", "iped", MISSING, "Não encontrado", why="Necessário para o MPlayer e outras ferramentas nativas.", plan=_winget("Microsoft.VCRedist.2015+.x64")))  # fmt: skip
+        out.append(Dep("vcredist", "Visual C++ 2015-2022 (x64)", "iped", MISSING, "Não encontrado", why="Necessário para o MPlayer e outras ferramentas nativas.", plan=_winget("Microsoft.VCRedist.2015+.x64", kind="vcredist")))  # fmt: skip
     tess = file_dep("tesseract", "Tesseract OCR", ["tesseract.exe", "tesseract"], "Lê texto de imagens e PDFs digitalizados.")
     if tess.status == OK and root:
         langs = sorted({p.stem for p in env.find_files(root, "*.traineddata", 6)})
@@ -250,13 +250,13 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
     if models is not None or exe:
         out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=True))
     else:
-        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama"), why="Roda o modelo de IA neste computador."))
+        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"), why="Roda o modelo de IA neste computador."))
     sugg = suggest_model(gpu[1] if gpu else None)
     if models:
         out.append(Dep("model", "Modelo de IA", "ia", OK, f"{len(models)} baixado(s): {', '.join(models[:3])}{'…' if len(models) > 3 else ''}", required=True))
     else:
         out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB).",
-                       plan=Plan("pull", (sugg,), f"Baixa {sugg} pelo Ollama (precisa dele aberto).") if models is not None or exe else None))  # fmt: skip
+                       plan=Plan("pull", (sugg,), f"Baixa {sugg} pelo Ollama (inicia o Ollama sozinho se estiver parado).")))  # fmt: skip
     if env.python_ok_for_webui():
         out.append(Dep("py311", "Python 3.11 para o Open WebUI", "ia", OK, "Disponível"))
     else:
@@ -303,49 +303,61 @@ def pull_lines(model: str, url: str = "http://127.0.0.1:11434") -> Iterator[str]
             yield raw.decode("utf-8", "replace")
 
 
-@dataclass
-class Result:
-    ok: bool
-    code: int = 0
-    message: str = ""
-    log: list[str] = field(default_factory=list)
+Result = ins.Result
 
 
-def run_plan(plan: Plan, say: Callable[[str], None], progress: Callable[[float | None], None] | None = None, *, lines: Callable[[str], Iterator[str]] | None = None) -> Result:
-    """Executa um plano automático, narrando no `say`. Nunca abre janela de console."""
+def run_plan(  # noqa: C901
+    plan: Plan, say: Callable[[str], None], progress: Callable[[float | None], None] | None = None, *,
+    lines: Callable[[str], Iterator[str]] | None = None, ops: ins.Ops | None = None,
+) -> Result:  # fmt: skip
+    """Executa um plano automático, narrando no `say` (e no arquivo instalacao.log). Nunca abre janela de console."""
     progress = progress or (lambda _f: None)
+    ops = ops or ins.Ops(say)
     if plan.kind == "manual":
         return Result(False, 2, f"Instalação manual: {plan.url or plan.note}")
+    if plan.kind == "ollama":
+        return ins.ensure_ollama(ops, progress)
+    if plan.kind == "java":
+        return ins.ensure_jre(ops, Path(plan.command[0]), progress)
+    if plan.kind == "vcredist":
+        return ins.ensure_vcredist(ops, progress)
     if plan.kind == "pull":
         model = plan.command[0]
-        say(f"$ ollama pull {model}  (via API do Ollama)")
+        ready = ins.ensure_ollama_running(ops)
+        if not ready.ok:
+            return ready
         err = ""
-        try:
-            for line in (lines or pull_lines)(model):
-                text, frac = parse_pull_line(line)
-                if text:
-                    say(text)
-                if frac is not None:
-                    progress(frac)
-                if text.startswith("Erro"):
-                    err = text
-        except Exception as exc:  # noqa: BLE001
-            return Result(False, 1, f"Não consegui falar com o Ollama: {exc}")
-        return Result(not err, 1 if err else 0, err)
+        for attempt in (1, 2, 3):  # o download do Ollama continua de onde parou
+            err = ""
+            ops.say(f"$ ollama pull {model}  (via API do Ollama; tentativa {attempt}/3)")
+            try:
+                for line in (lines or pull_lines)(model):
+                    text, frac = parse_pull_line(line)
+                    if text:
+                        say(text)
+                    if frac is not None:
+                        progress(frac)
+                    if text.startswith("Erro"):
+                        err = text
+            except Exception as exc:  # noqa: BLE001
+                err = f"Conexão interrompida: {exc}"
+            if not err:
+                return Result(True)
+            ops.say(err)
+            ops.sleep(3)
+        return Result(False, 1, err)
     if not plan.validated:
-        say("AVISO: este comando não foi validado contra o seu IPED; confira o resultado depois.")
-    say("$ " + " ".join(f'"{c}"' if " " in c else c for c in plan.command))
-    progress(None)
-    try:
-        proc = subprocess.Popen(  # noqa: S603
-            list(plan.command), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-            env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"), **wl.hidden_kwargs(),
-        )  # fmt: skip
-    except OSError as exc:
-        return Result(False, 1, f"Não consegui executar: {exc}")
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        if line.strip():
-            say(line.rstrip())
-    code = proc.wait()
+        ops.say("AVISO: este comando não foi validado contra o seu IPED; confira o resultado depois.")
+    if plan.kind == "winget":
+        code = ops.stream(list(plan.command))
+        return Result(code in ins.WINGET_OK, code, "" if code in ins.WINGET_OK else f"O winget terminou com erro (código {code}).")
+    attempts = 2 if plan.kind == "openwebui" else 1  # instalações grandes às vezes falham por rede
+    code = 1
+    for n in range(attempts):
+        if n:
+            ops.say("Tentando de novo…")
+        progress(None)
+        code = ops.stream(list(plan.command))
+        if code == 0:
+            break
     return Result(code == 0, code, "" if code == 0 else f"O instalador terminou com erro (código {code}).")

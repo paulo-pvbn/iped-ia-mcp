@@ -289,12 +289,36 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 # As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
 # (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
 NUM_CTX = 16384
+TEMPERATURE = 0.5  # análise de evidências: respostas estáveis e fiéis ao que as ferramentas devolveram
+TOP_P = 0.6
 GUARD_PORT = 11435  # guarda de contexto entre o Open WebUI e o Ollama (11434)
 
 
 def text_chars_for(num_ctx: int) -> int:
     """Caracteres por leitura de documento: ~20% do contexto (1 token ~ 3 caracteres, e o resto fica para a conversa)."""
     return max(1500, min(20000, int(num_ctx * 0.2) // 500 * 500))
+
+
+QUIET_TASKS = (
+    "ENABLE_TITLE_GENERATION", "ENABLE_FOLLOW_UP_GENERATION", "ENABLE_TAGS_GENERATION",
+    "ENABLE_AUTOCOMPLETE_GENERATION", "ENABLE_SEARCH_QUERY_GENERATION", "ENABLE_RETRIEVAL_QUERY_GENERATION",
+)  # fmt: skip
+
+
+def quiet_background_tasks(base: str, token: str) -> list[str]:
+    """Desliga as chamadas extras que o Open WebUI faz ao modelo (título, etiquetas, sugestões, autocompletar…).
+
+    Cada uma gasta tempo do modelo local e disputa a janela de contexto com a pergunta. Só mexe nas chaves que a versão
+    instalada do Open WebUI informa; o endpoint `/api/v1/tasks/config` não foi validado contra todas as versões.
+    Devolve as chaves desligadas ([] se nada mudou ou se o endpoint não existe).
+    """
+    current = _api("GET", f"{base}/api/v1/tasks/config", None, token)
+    if not isinstance(current, dict):
+        return []
+    changed = [k for k in QUIET_TASKS if current.get(k) is True]
+    if changed:
+        _api("POST", f"{base}/api/v1/tasks/config/update", {**current, **dict.fromkeys(changed, False)}, token)
+    return changed
 
 
 def provision_open_webui(
@@ -317,6 +341,12 @@ def provision_open_webui(
             current = _api("GET", f"{base}/ollama/config", None, token) or {}
             _api("POST", f"{base}/ollama/config/update",
                  {"ENABLE_OLLAMA_API": True, "OLLAMA_BASE_URLS": [ollama_url], "OLLAMA_API_CONFIGS": {"0": (current.get("OLLAMA_API_CONFIGS") or {}).get("0", {})}}, token)  # fmt: skip
+        try:
+            off = quiet_background_tasks(base, token)
+            if off:
+                say(f"   Open WebUI: desliguei {len(off)} chamada(s) extra(s) ao modelo (título, etiquetas, sugestões…) para ganhar velocidade.")
+        except Exception as exc:  # noqa: BLE001  (opcional: endpoint pode variar entre versões)
+            say(f"   (não consegui desligar as chamadas extras do Open WebUI: {exc})")
         connection = {
             "url": mcp_url,
             "path": "",
@@ -343,7 +373,10 @@ def provision_open_webui(
                 "toolIds": [f"server:mcp:{MCP_ID}"],
                 "capabilities": {"builtin_tools": False},  # sem search_knowledge_files etc.: só as do IPED
             },
-            "params": {"system": system_prompt, "function_calling": "native", "num_ctx": max(4096, int(num_ctx or NUM_CTX))},
+            "params": {
+                "system": system_prompt, "function_calling": "native", "num_ctx": max(4096, int(num_ctx or NUM_CTX)), "keep_alive": "30m",
+                "temperature": TEMPERATURE, "top_p": TOP_P,
+            },  # fmt: skip
             "is_active": True,
         }
         try:
