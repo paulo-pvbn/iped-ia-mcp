@@ -754,7 +754,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             tools = self.chosen_tools()
             cases = self.state.destino
             self.chat_proc = self.run_proc(
-                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0)), env=env
+                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0) if cfg.get("num_ctx_manual") else 0), env=env  # sem escolha do usuário vale o padrão (131072)
             )
             self.tracker = progress.Tracker()
             self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto).")
@@ -1035,7 +1035,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             box.delete("1.0", "end")
             box.insert("1.0", text + extra)
             box.configure(state="disabled")
-            ctx_var = tk.StringVar(value=str(cfg.get("num_ctx") or adv.num_ctx))
+            ctx_var = tk.StringVar(value=str(cfg.get("num_ctx") if cfg.get("num_ctx_manual") else adv.num_ctx))
             ttk.Label(bar, text="Janela de contexto").pack(side="left", padx=(0, 6))
             ttk.Combobox(bar, textvariable=ctx_var, values=[str(c) for c in tuning.CTX_OPTIONS], width=7, state="readonly").pack(side="left")
             note = tk.StringVar(value="")
@@ -1045,7 +1045,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
             def save_ctx() -> None:
                 c = wl.load_config()
-                c["num_ctx"] = ctx_var.get()
+                c["num_ctx"], c["num_ctx_manual"] = ctx_var.get(), True  # só a escolha feita aqui vale; valores antigos salvos são ignorados
                 wl.save_config(c)
                 note.set(f"Contexto {ctx_var.get()} salvo. Vale no próximo chat (pare e inicie o chat de novo).")
 
@@ -1070,7 +1070,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                         if res.ok:
                             self.vars["modelo"].set(adv.suggested_model)
                             c = wl.load_config()
-                            c["modelo"], c["num_ctx"] = adv.suggested_model, ctx_var.get()
+                            c["modelo"] = adv.suggested_model
                             wl.save_config(c)
                         self.root.after(0, lambda: note.set(f"{adv.suggested_model} pronto e selecionado." if res.ok else f"Falhou: {res.message}"))
 
@@ -1083,9 +1083,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 def use() -> None:
                     self.vars["modelo"].set(rec.name)
                     cfg = wl.load_config()
-                    cfg["modelo"], cfg["num_ctx"] = rec.name, str(rec.ctx or "")
+                    cfg["modelo"] = rec.name  # o contexto continua o padrão do programa
                     wl.save_config(cfg)
-                    self.say(f"Modelo escolhido: {rec.name}, contexto {rec.ctx}."
+                    self.say(f"Modelo escolhido: {rec.name}."
                              + (" Ative OLLAMA_FLASH_ATTENTION=1 e OLLAMA_KV_CACHE_TYPE=q8_0 no Ollama (e reinicie-o)." if rec.q8 else ""))  # fmt: skip
                     win.destroy()
 

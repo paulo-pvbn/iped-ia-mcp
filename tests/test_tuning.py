@@ -13,7 +13,7 @@ def hardware(vram=8.0, ram=64.0):
 def test_big_dense_model_on_small_gpu_suggests_moe_and_32k():
     big = fit("qwen3.8:27b", 17.0, 27)
     t = tn.advise(hardware(), [big], "qwen3.8:27b")
-    assert t.num_ctx == 32768 and t.suggested_model == "qwen3:30b"
+    assert t.num_ctx == 131072 and t.suggested_model == "qwen3:30b"
     assert t.env["OLLAMA_KV_CACHE_TYPE"] == "q8_0" and t.env["OLLAMA_NUM_PARALLEL"] == "1"
 
 
@@ -23,10 +23,10 @@ def test_small_ram_suggests_small_model_and_16k():
     assert t.num_ctx == 16384 and t.suggested_model == "qwen3:8b"
 
 
-def test_model_that_fits_gets_largest_context_that_fits_and_no_suggestion():
+def test_default_is_130k_when_memory_allows_and_no_suggestion():
     small = fit("qwen3:4b", 2.5, 4)
     t = tn.advise(hardware(), [small], "qwen3:4b")
-    assert t.num_ctx == 32768 and t.suggested_model == ""
+    assert t.num_ctx == 131072 and t.suggested_model == ""
 
 
 def test_moe_is_not_replaced():
@@ -42,3 +42,16 @@ def test_apply_env_runs_setx_then_restarts():
     assert ["taskkill", "/F", "/IM", "ollama.exe"] in calls
     calls.clear()
     assert not tn.apply_env({"A": "1"}, log.append, run=lambda c: calls.append(c) or 1) and ["taskkill"] not in [c[:1] for c in calls]
+
+
+def test_default_constants_are_130k():
+    from iped_mcp import ollama_guard as og
+    from iped_mcp import webui_launcher as wl
+
+    assert wl.NUM_CTX == og.DEFAULT_CTX == tn.CTX_DEFAULT == 131072 and 131072 in tn.CTX_OPTIONS
+
+
+def test_context_shrinks_only_when_memory_cannot_hold_it():
+    big = fit("qwen3.8:27b", 17.0, 27)
+    t = tn.advise(hardware(vram=8, ram=32), [big], "qwen3.8:27b")
+    assert t.num_ctx < 131072 and any("padrão do programa" in x for x in t.lines)

@@ -288,7 +288,7 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
 
 # As 33 ferramentas + prompt + resultado estouram 8k: o Ollama corta o começo da conversa
 # (inclusive a pergunta) e o template Qwen falha com "No user query found in messages".
-NUM_CTX = 16384
+NUM_CTX = 131072  # janela padrão (~130 mil tokens): o usuário não precisa configurar nada
 TEMPERATURE = 0.5  # análise de evidências: respostas estáveis e fiéis ao que as ferramentas devolveram
 TOP_P = 0.6
 GUARD_PORT = 11435  # guarda de contexto entre o Open WebUI e o Ollama (11434)

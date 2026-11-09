@@ -24,8 +24,9 @@ OLLAMA_ENV = {
     "OLLAMA_MAX_LOADED_MODELS": "1",  # não deixa dois modelos disputando a placa
     "OLLAMA_KEEP_ALIVE": "30m",  # não descarrega o modelo entre perguntas (recarregar leva minutos num modelo grande)
 }
-CTX_OPTIONS = (12288, 16384, 24576, 32768, 49152, 65536)
-CTX_CAP = 32768  # além disso o ganho some: cada leitura de documento já é limitada e a conversa fica lenta
+CTX_OPTIONS = (16384, 32768, 65536, 98304, 131072)
+CTX_DEFAULT = 131072  # padrão do programa: pedido do dono (~130 mil tokens); com 8 GB de VRAM a parte que não cabe na placa usa a RAM
+CTX_MIN = 16384
 MOE = re.compile(r"a\d+b|moe", re.I)
 
 
@@ -47,16 +48,19 @@ def advise(found: hw.Hardware, fits: list[hw.ModelFit], current: str) -> Tuning:
     cur = next((f for f in fits if f.name == current), None) or hw.recommend(fits)
     lines: list[str] = []
     suggested = ""
-    ctx = 16384
+    ctx = CTX_DEFAULT
     if cur is not None and vram is not None:
-        fits_gpu = [c for c in CTX_OPTIONS if c <= CTX_CAP and cur.size_gb + hw.kv_gb(cur.params_b, c, True) + hw.OVERHEAD_GB <= vram]
-        if fits_gpu:
-            ctx = max(fits_gpu)
-            lines.append(f"{cur.name} cabe inteiro na placa ({vram:g} GB) com contexto de {ctx} usando o cache quantizado.")
-        else:
-            spill = cur.size_gb + hw.kv_gb(cur.params_b, 32768, True)
-            ctx = 32768 if ram >= 32 and ram - spill >= 8 else 16384
-            lines.append(f"{cur.name} ({cur.size_gb:g} GB) não cabe inteiro na placa ({vram:g} GB): parte roda na CPU e fica lento. Contexto {ctx} (a RAM de {ram:g} GB comporta).")
+        eff = 8.0 if is_moe(cur.name) else cur.params_b  # MoE: o cache é bem menor que o de um denso do mesmo tamanho total
+        budget = vram + ram * 0.85  # o que não cabe na placa vai para a RAM (mais lento, mas funciona)
+
+        def need(c: int) -> float:
+            return cur.size_gb + hw.kv_gb(eff, c, True) + hw.OVERHEAD_GB
+
+        ctx = max((c for c in CTX_OPTIONS if need(c) <= budget), default=CTX_MIN)
+        where = "inteiro na placa" if need(ctx) <= vram else f"parte na RAM ({ram:g} GB)"
+        lines.append(f"{cur.name} ({cur.size_gb:g} GB) com contexto de {ctx}: cabe {where}. Cache de contexto estimado: {hw.kv_gb(eff, ctx, True):.1f} GB.")
+        if ctx < CTX_DEFAULT:
+            lines.append(f"O padrão do programa é {CTX_DEFAULT}, mas a memória deste computador não comporta isso com este modelo; use um modelo menor ou mais RAM.")
         if cur.fit in ("parcial", "cpu") and (cur.params_b or 0) > 14 and not is_moe(cur.name):
             if ram >= 32:
                 suggested = "qwen3:30b"
@@ -64,8 +68,9 @@ def advise(found: hw.Hardware, fits: list[hw.ModelFit], current: str) -> Tuning:
             else:
                 suggested = "qwen3:8b"
                 lines.append("Sugestão: qwen3:8b, que cabe inteiro na placa.")
+        lines.append("Com mais de 8 GB de VRAM mais camadas ficam na placa e tudo fica mais rápido. A janela só pesa no tempo quando é de fato preenchida.")
     elif vram is None:
-        lines.append("Não consegui ler a memória da placa; mantive 16384.")
+        lines.append(f"Não consegui ler a memória da placa; mantive {CTX_DEFAULT}.")
     lines.append("As variáveis do Ollama abaixo reduzem o cache de contexto e evitam recarregar o modelo; o Ollama precisa ser reiniciado.")
     return Tuning(ctx, dict(OLLAMA_ENV), suggested, lines)
 
