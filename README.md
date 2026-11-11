@@ -10,7 +10,7 @@ MCP server (FastMCP) para interagir com dados telemáticos indexados no IPED.
 > - **Acrescentado neste fork** (para usar com o Open WebUI e distribuir como programa):
 >   token e escuta só em 127.0.0.1, auditoria em cadeia de hash, tools de remoção de marcadores sob controle
 >   (`IPED_MCP_ALLOW_DESTRUCTIVE`), prompt do analista, launcher, e o executável `iped-ia-mcp`
->   (Windows e macOS, na aba Releases). Veja a seção "Open WebUI (fork…)" abaixo.
+>   (Windows, na aba Releases). Veja a seção "Open WebUI (fork…)" abaixo.
 > - Para fazer o seu modelo conversar com os casos: use o executável deste repositório + Open WebUI + Ollama.
 
 - Endpoints IPED: variáveis de ambiente `IPED_ENDPOINTS` (múltiplos) ou
@@ -242,7 +242,7 @@ iped-ia-mcp.exe --modo verificar          # confere a cadeia de hash da auditori
 python scripts/entry.py --root "C:\CIAF\IPED431\iped-4.3.1" --sources multicases.json
 ```
 
-Executáveis gerados no GitHub Actions (PyInstaller) para Windows (`.exe`) e macOS (Apple Silicon e Intel, `.tar.gz`); **não são assinados**: confira o `.sha256` da release. No macOS: `tar -xzf` e, se o Gatekeeper bloquear, `xattr -d com.apple.quarantine ./iped-ia-mcp` (ou botão direito → Abrir). Os executáveis de macOS ainda não foram testados em um Mac.
+Executável gerado no GitHub Actions (PyInstaller) para Windows (`.exe`); **não é assinado**: confira o `.sha256` da release.
 O IPED (Java) **não** vai dentro dele; aponte a pasta do IPED. O Open WebUI também não: `pip install open-webui`
 (Python 3.11) ou Docker.
 

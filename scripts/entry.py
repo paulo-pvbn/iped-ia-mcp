@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         ok = len(tools) >= 30 and prompt.is_file() and (HERE / "web-api-launcher.py").is_file()
         from iped_mcp import deps, gui, gui_app, progress, ui_theme, widgets, wizard  # noqa: F401  (a janela é importável)
 
-        if sys.platform in ("win32", "darwin"):
+        if sys.platform == "win32":
             import tkinter  # noqa: F401  (tem de estar empacotado)
         print(f"selftest {'ok' if ok else 'FALHOU'}: {len(tools)} tools, prompt={prompt.is_file()}")
         return 0 if ok else 1

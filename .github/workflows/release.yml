@@ -1,4 +1,4 @@
-name: Release (executáveis Windows e macOS)
+name: Release (executável Windows)
 on:
   push:
     tags: ["v*"]   # empurrar uma tag vN.N.N gera e publica a release pública
@@ -57,7 +57,6 @@ jobs:
           name: windows
           path: out/*
   publish:
-    # O Windows publica sozinho; o macOS (abaixo) acrescenta seus arquivos depois, sem bloquear.
     needs: windows
     if: ${{ github.ref_type == 'tag' || inputs.publicar }}
     runs-on: ubuntu-latest
@@ -73,42 +72,3 @@ jobs:
           if [ "${{ github.ref_type }}" != "tag" ] && [ "${{ inputs.rascunho }}" = "true" ]; then FLAGS="--draft"; else FLAGS="--latest"; fi
           gh release create "$TAG" dist/* --repo "${{ github.repository }}" \
             --title "$TAG" --target "${{ github.sha }}" --generate-notes $FLAGS
-  macos:
-    needs: publish
-    if: ${{ always() && needs.publish.result == 'success' }}
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest   # Apple Silicon (arm64)
-            asset: iped-ia-mcp-macos-arm64.tar.gz
-          - os: macos-15-intel # Intel (x86_64)
-            asset: iped-ia-mcp-macos-x64.tar.gz
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e . pytest pyinstaller
-      - run: pytest -q
-      - name: Empacotar
-        run: |
-          pyinstaller --onefile --name iped-ia-mcp --paths src --paths . \
-            --collect-all fastmcp --collect-submodules iped_mcp \
-            --hidden-import main --hidden-import requests --hidden-import dotenv \
-            --add-data "web-api-launcher.py:." --add-data "prompts:prompts" \
-            scripts/entry.py
-      - name: Teste de fumaça
-        run: |
-          ./dist/iped-ia-mcp --version
-          ./dist/iped-ia-mcp --selftest
-      - name: Anexar à release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p out && chmod +x dist/iped-ia-mcp
-          tar -czf "out/${{ matrix.asset }}" -C dist iped-ia-mcp
-          (cd out && shasum -a 256 "${{ matrix.asset }}" | tee "${{ matrix.asset }}.sha256")
-          gh release upload "$TAG" out/* --repo "${{ github.repository }}" --clobber
