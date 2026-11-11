@@ -214,6 +214,23 @@ Baixar instaladores precisa de internet; o processamento dos casos e da IA conti
 módulos Python e do Java estão marcados "a validar": vêm da documentação pública e não foram conferidos contra o seu IPED.**
 O programa mostra cada comando no log antes de rodar.
 
+**Instalação com plano B.** Ollama, Java do IPED (JRE 17 em `<IPED>\jre`) e Visual C++ tentam primeiro o winget e, se ele falhar,
+baixam o instalador oficial; o resultado só conta como certo depois de conferir de novo a dependência. Cada passo fica em
+`%APPDATA%\iped-ia-mcp\instalacao.log`. O modelo só é baixado depois que o Ollama está respondendo. Os endereços de download
+**não foram testados em um Windows real**.
+
+**Menu IA → Desempenho e contexto.** Mostra a memória da máquina, estima o que cabe e recomenda modelo e janela. "Aplicar ajustes no
+Ollama" grava variáveis do usuário (cache de contexto q8_0, atenção flash, um modelo por vez) e reinicia o Ollama.
+
+**Open WebUI já configurado.** O modelo "Analista IPED" é criado com temperatura 0,5, top P 0,6, janela de **131072 tokens** e
+`keep_alive` de 30 min; títulos, etiquetas e sugestões automáticas ficam desligados para não gastar tempo de GPU. Com 8 GB de VRAM,
+a parte do cache que não cabe na placa vai para a RAM: perguntas curtas seguem rápidas, mas encher a janela deixa a leitura inicial
+lenta. Acima do contexto nativo do modelo (cerca de 32 mil tokens nos Qwen3) a qualidade pode cair.
+
+**Instruções do modelo.** O texto padrão inclui um bloco de "cobertura e conclusão": relata só o que foi executado, separa busca
+sem resultado de busca com falha, tenta outros grupos de conceitos antes de descartar uma hipótese e avalia em dois eixos
+independentes (cobertura do exame e sustentação no material examinado). Para usar o seu texto, use o `prompt.md` local.
+
 **Voltar à versão anterior.** A janela da 0.6.x continua na release `v0.6.0` e na branch `estavel-v0.6`.
 
 ```bash
