@@ -756,6 +756,19 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             time.sleep(0.5)
         say(f"   MCP no ar em {time.monotonic() - started:.0f}s.")
 
+        from iped_mcp import installers as ins  # aqui dentro: installers também importa este módulo
+
+        ready = ins.ensure_ollama_running(ins.Ops(lambda m: say("   " + m)))
+        tags: list[str] = []
+        if ready.ok:
+            try:
+                tags = [m["name"] for m in (_api("GET", args.ollama_url.rstrip("/") + "/api/tags", None, None, 6) or {}).get("models", [])]
+            except Exception:  # noqa: BLE001
+                tags = []
+        if not tags:
+            say("ERRO: " + (ready.message if not ready.ok else "o Ollama está aberto, mas não tem nenhum modelo baixado."), err=True)
+            say("Volte à etapa IA do programa e use 'Baixar e usar' (ou, com o Ollama aberto, rode: ollama pull qwen3:8b).", err=True)
+            return 1
         ctx = int(getattr(args, "num_ctx", 0) or NUM_CTX)
         STATS_PATH.unlink(missing_ok=True)  # números de uma execução anterior não valem
         guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}"), stats_path=STATS_PATH).start()
