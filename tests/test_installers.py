@@ -154,8 +154,9 @@ def test_download_falls_back_to_windows_proxy_auth(tmp_path, monkeypatch):
 def test_proxy_login_stays_in_memory_and_out_of_command_lines(monkeypatch):
     from iped_mcp import installers as ins
 
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp:8080")
-    monkeypatch.setenv("HTTP_PROXY", "http://proxy.corp:8080")
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.corp:8080", "https": "http://proxy.corp:8080"})
     ins.set_proxy_login("DOM\\ana", "s3nh@:/")
     try:
         cmds = ins.windows_download_commands("https://ollama.com/download/OllamaSetup.exe", Path("C:/t/x.exe"))
