@@ -774,6 +774,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             olla_models = [m["name"] for m in (_api("GET", args.ollama_url.rstrip("/") + "/api/tags", None, None, 4) or {}).get("models", [])]
         except Exception:  # noqa: BLE001
             pass
+        if getattr(args, "backend", "auto") == "lmstudio" or (not olla_models and not lms_models):
+            lms_models = bk.ensure_lmstudio_server(lambda m: say(m)) or lms_models  # só liga se o LM Studio existir; sem ele não muda nada
         backend = bk.choose_backend(getattr(args, "backend", "auto"), getattr(args, "modelo", "") or "", olla_models, lms_models)
         guard = None
         if backend == "lmstudio":

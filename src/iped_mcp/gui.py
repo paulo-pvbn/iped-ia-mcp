@@ -145,11 +145,13 @@ def big_model_hint(modelo: str) -> str:
 
 
 def chat_command(
-    iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "", ferramentas: object = None, num_ctx: int = 0
+    iped_root: str, cases_dir: str, *, sem_destrutivas: bool = False, modelo: str = "", ferramentas: object = None, num_ctx: int = 0, backend: str = "auto"
 ) -> list[str]:
     cmd = [*wl.self_command("iniciar"), "--root", iped_root, "--cases-dir", cases_dir]
     if modelo:
         cmd += ["--modelo", modelo]
+    if backend in ("ollama", "lmstudio"):
+        cmd += ["--backend", backend]
     if num_ctx:
         cmd += ["--num-ctx", str(int(num_ctx))]
     chosen = tc.normalize(ferramentas) if ferramentas else []

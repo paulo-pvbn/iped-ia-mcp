@@ -269,7 +269,7 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
         out.append(Dep("model", "Modelo de IA", "ia", OK, f"LM Studio: {len(lms)} modelo(s) no servidor: {', '.join(lms[:3])}{'…' if len(lms) > 3 else ''}", required=True))
     elif lms is None and env.lmstudio_installed():
         out.append(Dep("model", "Modelo de IA", "ia", MISSING, "LM Studio instalado, mas o servidor local está desligado (ou sem modelo)", required=True, why=bk.LMSTUDIO_HINT,
-                       plan=Plan("manual", note=bk.LMSTUDIO_HINT)))  # fmt: skip
+                       plan=Plan("lmstudio", (), "Liga o servidor local do LM Studio (lms server start) e carrega um modelo se preciso.")))  # fmt: skip
     else:
         out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB). Ou use o LM Studio.",
                        plan=Plan("pull", (sugg,), f"Baixa {sugg} pelo Ollama (inicia o Ollama sozinho se estiver parado).")))  # fmt: skip
@@ -337,6 +337,9 @@ def run_plan(  # noqa: C901
         return ins.ensure_jre(ops, Path(plan.command[0]), progress)
     if plan.kind == "vcredist":
         return ins.ensure_vcredist(ops, progress)
+    if plan.kind == "lmstudio":
+        found = bk.ensure_lmstudio_server(say)
+        return Result(bool(found), 0 if found else 1, "" if found else "O servidor do LM Studio não ficou pronto. " + bk.LMSTUDIO_HINT)
     if plan.kind == "pull":
         model = plan.command[0]
         ready = ins.ensure_ollama_running(ops)

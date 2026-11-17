@@ -219,12 +219,12 @@ baixam o instalador oficial; o resultado só conta como certo depois de conferir
 `%APPDATA%\iped-ia-mcp\instalacao.log`. O modelo só é baixado depois que o Ollama está respondendo. Os endereços de download
 **não foram testados em um Windows real**.
 
-**LM Studio como fonte de IA (v1.2.1).** Além do Ollama, o programa reconhece o servidor local do LM Studio (`http://127.0.0.1:1234`, só neste computador).
+**LM Studio como fonte de IA (v1.2.1; servidor ligado sozinho na v1.2.2).** Além do Ollama, o programa reconhece o servidor local do LM Studio (`http://127.0.0.1:1234`, só neste computador).
 No LM Studio: aba **Developer** → ligue o servidor (Status: Running) e carregue um modelo **que aceite ferramentas** (tool use). As Dependências
 e a lista de modelos passam a mostrar os modelos do LM Studio; ao abrir o chat, se só o LM Studio tiver modelo (ou se você escolher um dele), o Open WebUI
 é ligado a ele (conexão compatível com OpenAI) e o Ollama é desligado dessa sessão. **Atenção:** no LM Studio a janela de contexto é definida ao
 carregar o modelo (**Context Length**; o padrão costuma ser pequeno); ajuste lá, porque a guarda de contexto e a barra de uso só existem no Ollama.
-Esta ligação com o LM Studio **não foi testada em um Windows real** (o endpoint de configuração do Open WebUI pode variar entre versões).
+Se o servidor estiver desligado, o programa o liga com `lms server start` (e, se nenhum modelo aparecer, tenta `lms load` com contexto de 32768); na etapa **Assistente de IA** dá para escolher a fonte (automática, Ollama ou LM Studio). Esta ligação com o LM Studio **não foi testada em um Windows real** (o endpoint de configuração do Open WebUI pode variar entre versões).
 
 **Menu IA → Desempenho e contexto.** Mostra a memória da máquina, estima o que cabe e recomenda modelo e janela. "Aplicar ajustes no
 Ollama" grava variáveis do usuário (cache de contexto q8_0, atenção flash, um modelo por vez) e reinicia o Ollama.

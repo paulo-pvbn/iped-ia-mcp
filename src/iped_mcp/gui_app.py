@@ -483,11 +483,22 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     def step_ia(self) -> None:
         ttk = self.ttk
-        self.subtitle.configure(text="Modelo local (Ollama) e ferramentas que a IA pode usar no caso. Nada sai do seu computador.")
+        self.subtitle.configure(text="Modelo local (Ollama ou LM Studio) e ferramentas que a IA pode usar no caso. Nada sai do seu computador.")
         box = ttk.Frame(self.form)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         box.columnconfigure(0, weight=1)
-        ttk.Label(box, text="Modelo de IA (Ollama)", font=self.f["bold"]).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(box, text="Modelo de IA", font=self.f["bold"]).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        names = {"auto": "Automática (a que tiver modelo)", "ollama": "Ollama", "lmstudio": "LM Studio"}
+        self.backend_var = self.tk.StringVar(value=names.get(wl.load_config().get("backend", "auto"), names["auto"]))
+        src = ttk.Combobox(box, textvariable=self.backend_var, values=list(names.values()), state="readonly", width=30)
+        src.grid(row=0, column=1, sticky="e", pady=(0, 6))
+
+        def save_backend(*_a) -> None:
+            cfg = wl.load_config()
+            cfg["backend"] = next((k for k, v in names.items() if v == self.backend_var.get()), "auto")
+            wl.save_config(cfg)
+
+        src.bind("<<ComboboxSelected>>", save_backend)
         self.cmb_modelo = ttk.Combobox(box, textvariable=self.vars["modelo"], values=self.models)
         self.cmb_modelo.grid(row=1, column=0, sticky="ew")
         ttk.Button(box, text="Hardware…", command=self.show_hardware).grid(row=1, column=1, padx=(8, 0))
@@ -522,7 +533,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         cmb.bind("<<ComboboxSelected>>", self._preset_changed)
 
     def _model_note_text(self) -> str:
-        return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) no Ollama."
+        return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) (Ollama e LM Studio)."
 
     def _preset_now(self) -> str:
         saved = wl.load_config().get("ferramentas", "")
@@ -754,7 +765,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             tools = self.chosen_tools()
             cases = self.state.destino
             self.chat_proc = self.run_proc(
-                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0) if cfg.get("num_ctx_manual") else 0), env=env  # sem escolha do usuário vale o padrão (131072)
+                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0) if cfg.get("num_ctx_manual") else 0, backend=cfg.get("backend", "auto")), env=env  # sem escolha do usuário vale o padrão (131072)
             )
             self.tracker = progress.Tracker()
             self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto).")

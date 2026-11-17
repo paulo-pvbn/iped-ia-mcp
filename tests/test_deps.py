@@ -160,5 +160,5 @@ def test_model_found_in_lmstudio_counts_as_ok():
 def test_lmstudio_installed_but_server_off_explains_how_to_turn_it_on():
     deps = dp.check_all("", env=Fake(models=None, lms=None, lms_installed=True))
     model = _by_key(deps, "model")
-    assert model.status == dp.MISSING and "servidor" in model.detail and model.plan.kind == "manual"
-    assert "Developer" in model.plan.note
+    assert model.status == dp.MISSING and "servidor" in model.detail and model.plan.kind == "lmstudio"
+    assert "lms server start" in model.plan.note
