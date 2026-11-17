@@ -774,6 +774,9 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.messagebox.showwarning(APP_TITLE, err or "")
             return
 
+        if self.state.task != wz.ABRIR and self._offer_model_download():
+            return
+
         def start() -> None:
             env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
             cfg = wl.load_config()
@@ -812,6 +815,24 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             self.root.after(0, after)
 
         threading.Thread(target=check, daemon=True).start()
+
+    def _offer_model_download(self) -> bool:
+        """Se o modelo escolhido não está baixado no Ollama, oferece baixar já (devolve True se a janela de download foi aberta)."""
+        have = gui.ollama_models()
+        want = (self.state.modelo or "").strip()
+        if have and (not want or want in have or f"{want}:latest" in have):
+            return False
+        vram = self.hw_cache[0].vram_gb if self.hw_cache else None
+        tag = want or deps.recommended_preset(vram).tag
+        preset = next((x for x in deps.MODEL_PRESETS if x.tag == tag), None)
+        ask = self.messagebox.askyesno(
+            APP_TITLE,
+            f"O modelo de IA ainda não está baixado neste computador.\n\nBaixar {tag} agora? É feito uma vez só, precisa de internet e pode demorar. "
+            "Se o Ollama não estiver instalado, ele também é instalado.",
+        )
+        if ask:
+            self.pull_model(tag, preset.size if preset else "", then=self.toggle_chat)
+        return True
 
     def watch_chat(self, proc: subprocess.Popen) -> None:
         code = proc.wait()
@@ -918,57 +939,98 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(0, apply)
 
     def pull_preset(self, labels: list[str]) -> None:
-        """Baixa o modelo pronto escolhido (instala/abre o Ollama se preciso) e já o seleciona; se falhar, mostra o roteiro manual."""
+        preset = deps.MODEL_PRESETS[labels.index(self.preset_var.get())]
+        self.pull_model(preset.tag, preset.size)
+
+    def pull_model(self, tag: str, size: str = "", then=None) -> None:
+        """Instala/abre o Ollama se preciso e baixa o modelo, numa janela com andamento visível. `then` roda ao terminar com sucesso."""
         if getattr(self, "_pulling", False):
             return
-        preset = deps.MODEL_PRESETS[labels.index(self.preset_var.get())]
         self._pulling = True
+        tk, ttk = self.tk, self.ttk
+        win = self.toplevel("Preparando a IA", "640x300")
+        win.protocol("WM_DELETE_WINDOW", lambda: None)  # só fecha quando terminar
+        ttk.Label(win, text=f"Preparando o modelo {tag}", font=self.f["h2"]).pack(anchor="w", padx=24, pady=(22, 4))
+        ttk.Label(win, text=f"Isso é feito uma vez só e precisa de internet{' (' + size + ')' if size else ''}. Pode levar de alguns minutos a uma hora; não feche o programa.",
+                  style="Muted.TLabel", wraplength=580, justify="left").pack(anchor="w", padx=24)
+        stage = tk.StringVar(value="Verificando o Ollama…")
+        detail = tk.StringVar(value="")
+        ttk.Label(win, textvariable=stage, font=self.f["bold"]).pack(anchor="w", padx=24, pady=(18, 4))
+        bar = ttk.Progressbar(win, mode="indeterminate")
+        bar.pack(fill="x", padx=24)
+        bar.start(12)
+        ttk.Label(win, textvariable=detail, style="Muted.TLabel", wraplength=580, justify="left").pack(anchor="w", padx=24, pady=(6, 0))
+        close = ttk.Button(win, text="Fechar", state="disabled", command=win.destroy)
+        close.pack(side="bottom", anchor="e", padx=24, pady=16)
+        state: dict = {"frac": None, "line": "", "stage": stage.get(), "done": None}
 
-        def note(text: str, warn: bool = False) -> None:
-            def paint() -> None:
-                label = getattr(self, "model_note", None)
-                try:
-                    if label is not None and label.winfo_exists():
-                        label.configure(text=text, style="Warn.TLabel" if warn else "Muted.TLabel")
-                except Exception:  # noqa: BLE001
-                    pass
+        def say_line(text: str) -> None:
+            state["line"] = text[:200]
+            self.root.after(0, lambda t=text: self.say(t))
 
-            self.root.after(0, paint)
+        def poll() -> None:
+            if not win.winfo_exists():
+                return
+            if state["done"] is None:
+                stage.set(state["stage"])
+                detail.set(state["line"])
+                if state["frac"] is not None:
+                    bar.stop()
+                    bar.configure(mode="determinate", value=state["frac"] * 100)
+                else:
+                    if str(bar.cget("mode")) != "indeterminate":
+                        bar.configure(mode="indeterminate")
+                        bar.start(12)
+                win.after(300, poll)
+
+        def finish(ok: bool, kind: str = "") -> None:
+            self._pulling = False
+            state["done"] = ok
+            if not win.winfo_exists():
+                return
+            bar.stop()
+            bar.configure(mode="determinate", value=100 if ok else 0)
+            win.protocol("WM_DELETE_WINDOW", win.destroy)
+            close.configure(state="normal")
+            if ok:
+                stage.set(f"Pronto: {tag} está baixado e selecionado.")
+                detail.set("Pode fechar esta janela e seguir.")
+                if then:
+                    win.destroy()
+                    then()
+            else:
+                stage.set("Não consegui concluir. Siga o passo a passo manual.")
+                detail.set(state["line"])
+                win.destroy()
+                self.show_manual_guide(kind, tag)
 
         def work() -> None:
             try:
-                note(f"Preparando o Ollama e baixando {preset.tag} {preset.size}… o andamento aparece aqui e nos detalhes técnicos.")
                 if not deps.Env().ollama_exe():
-                    res = deps.run_plan(deps.Plan("ollama"), lambda m: self.root.after(0, lambda m=m: self.say(m)))
+                    state["stage"] = "Instalando o Ollama (programa que roda a IA)…"
+                    res = deps.run_plan(deps.Plan("ollama"), say_line, lambda f: state.update(frac=f))
                     if not res.ok:
-                        note("Não consegui instalar o Ollama sozinho. Siga o roteiro que abriu.", warn=True)
-                        self.root.after(0, lambda: self.show_manual_guide("ollama"))
+                        self.root.after(0, lambda: finish(False, "ollama"))
                         return
-                last = {"t": 0.0}
-
-                def frac(f: float | None) -> None:
-                    now = time.monotonic()
-                    if f is not None and now - last["t"] > 1.0:
-                        last["t"] = now
-                        note(f"Baixando {preset.tag}: {f * 100:.0f}%")
-
-                res = deps.run_plan(deps.Plan("pull", (preset.tag,)), lambda m: self.root.after(0, lambda m=m: self.say(m)), frac)
+                state.update(stage=f"Baixando o modelo {tag}…", frac=None)
+                res = deps.run_plan(deps.Plan("pull", (tag,)), say_line, lambda f: state.update(frac=f))
                 if res.ok:
                     cfg = wl.load_config()
-                    cfg["modelo"] = preset.tag
+                    cfg["modelo"] = tag
                     wl.save_config(cfg)
-                    self.root.after(0, lambda: self.vars["modelo"].set(preset.tag))
+                    self.root.after(0, lambda: self.vars["modelo"].set(tag))
                     self.load_models()
-                    note(f"{preset.tag} pronto e selecionado.")
                     self.refresh_status(self.vars["iped"].get())
+                    self.root.after(0, lambda: finish(True))
                 else:
-                    note(f"Não consegui baixar {preset.tag}. Siga o roteiro que abriu.", warn=True)
                     kind = "model" if deps.Env().ollama_exe() else "ollama"
-                    self.root.after(0, lambda: self.show_manual_guide(kind, preset.tag))
-            finally:
-                self._pulling = False
+                    self.root.after(0, lambda: finish(False, kind))
+            except Exception as exc:  # noqa: BLE001
+                state["line"] = f"Erro inesperado: {exc}"
+                self.root.after(0, lambda: finish(False, "model"))
 
         threading.Thread(target=work, daemon=True).start()
+        poll()
 
     def show_manual_guide(self, kind: str, model: str = "") -> None:
         """Janela com o passo a passo manual (Ollama ou modelo), botão para abrir a página e para verificar de novo."""
