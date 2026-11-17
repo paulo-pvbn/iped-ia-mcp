@@ -14,7 +14,7 @@ from pathlib import Path
 
 LMSTUDIO_URL = "http://127.0.0.1:1234"
 OLLAMA_URL = "http://127.0.0.1:11434"
-LMSTUDIO_HINT = "No LM Studio: aba Developer (ícone </>) → ligue o servidor local (Status: Running, porta 1234) e carregue um modelo."
+LMSTUDIO_HINT = "No LM Studio: aba Developer (ícone </>) → ligue o servidor local (Status: Running; o app descobre a porta, 1234 ou 4321) e carregue um modelo."
 
 
 def _get_json(url: str, timeout: float = 3) -> object:
@@ -22,18 +22,56 @@ def _get_json(url: str, timeout: float = 3) -> object:
         return json.load(resp)
 
 
-def lmstudio_models(url: str = LMSTUDIO_URL, fetch: Callable[[str], object] | None = None) -> list[str] | None:
+LMSTUDIO_PORTS = (1234, 4321)  # 1234 é o padrão antigo; o LM Studio 0.4 pode usar 4321 (veja Developer → "Reachable at")
+_active_url = LMSTUDIO_URL
+
+
+def active_lmstudio_url() -> str:
+    """Endereço em que o servidor do LM Studio foi visto por último (padrão: porta 1234)."""
+    return _active_url
+
+
+def _read_models(url: str, fetch: Callable[[str], object]) -> list[str] | None:
+    """Modelos de conversa de um endereço; None se ele não respondeu. Tenta a API compatível com OpenAI e a nativa do LM Studio."""
+    answered = False
+    names: list[str] = []
+    for path in ("/v1/models", "/api/v1/models"):
+        try:
+            data = fetch(url.rstrip("/") + path)
+        except Exception:  # noqa: BLE001, S112
+            continue
+        answered = True
+        if not isinstance(data, dict):
+            continue
+        for m in data.get("data") or data.get("models") or []:
+            if isinstance(m, dict):
+                if str(m.get("type", "llm")).lower() == "embedding":
+                    continue
+                name = str(m.get("id") or m.get("key") or "")
+                if name:
+                    names.append(name)
+        if names:
+            break
+    if not answered:
+        return None
+    return sorted({n for n in names if "embed" not in n.lower()})
+
+
+def lmstudio_models(url: str | None = None, fetch: Callable[[str], object] | None = None) -> list[str] | None:
     """Modelos de conversa que o servidor do LM Studio oferece; None se o servidor não respondeu.
 
-    Modelos de embeddings são ignorados (não conversam). O LM Studio só lista aqui o que está disponível no servidor.
+    Sem `url` (ou com o padrão), procura nas portas conhecidas (1234 e 4321) e lembra a que respondeu.
+    Modelos de embeddings são ignorados (não conversam).
     """
-    try:
-        data = (fetch or _get_json)(url.rstrip("/") + "/v1/models")
-    except Exception:  # noqa: BLE001
-        return None
-    items = data.get("data", []) if isinstance(data, dict) else []
-    ids = [str(m.get("id", "")) for m in items if isinstance(m, dict) and m.get("id")]
-    return sorted(i for i in ids if "embed" not in i.lower())
+    global _active_url  # noqa: PLW0603
+    fetch = fetch or _get_json
+    urls = [url] if url and url != LMSTUDIO_URL else [LMSTUDIO_URL.rsplit(":", 1)[0] + f":{p}" for p in LMSTUDIO_PORTS]
+    for u in urls:
+        found = _read_models(u, fetch)
+        if found is not None:
+            _active_url = u
+            return found
+    return None
 
 
 def lmstudio_installed() -> bool:

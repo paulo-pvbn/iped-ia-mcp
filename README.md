@@ -219,7 +219,7 @@ baixam o instalador oficial; o resultado só conta como certo depois de conferir
 `%APPDATA%\iped-ia-mcp\instalacao.log`. O modelo só é baixado depois que o Ollama está respondendo. Os endereços de download
 **não foram testados em um Windows real**.
 
-**LM Studio como fonte de IA (v1.2.1; servidor ligado sozinho na v1.2.2).** Além do Ollama, o programa reconhece o servidor local do LM Studio (`http://127.0.0.1:1234`, só neste computador).
+**LM Studio como fonte de IA (v1.2.1; servidor ligado sozinho na v1.2.2).** Além do Ollama, o programa reconhece o servidor local do LM Studio (só neste computador; o app procura nas portas 1234 e 4321).
 No LM Studio: aba **Developer** → ligue o servidor (Status: Running) e carregue um modelo **que aceite ferramentas** (tool use). As Dependências
 e a lista de modelos passam a mostrar os modelos do LM Studio; ao abrir o chat, se só o LM Studio tiver modelo (ou se você escolher um dele), o Open WebUI
 é ligado a ele (conexão compatível com OpenAI) e o Ollama é desligado dessa sessão. **Atenção:** no LM Studio a janela de contexto é definida ao

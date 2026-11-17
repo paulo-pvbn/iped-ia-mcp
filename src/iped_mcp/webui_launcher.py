@@ -780,7 +780,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         backend = bk.choose_backend(getattr(args, "backend", "auto"), getattr(args, "modelo", "") or "", olla_models, lms_models)
         guard = None
         if backend == "lmstudio":
-            say(f"   IA: LM Studio em {bk.LMSTUDIO_URL} ({len(lms_models or [])} modelo(s)). Sem a guarda de contexto: defina a janela ao carregar o modelo no LM Studio.")
+            say(f"   IA: LM Studio em {bk.active_lmstudio_url()} ({len(lms_models or [])} modelo(s)). Sem a guarda de contexto: defina a janela ao carregar o modelo no LM Studio.")
             if not lms_models:
                 say("   AVISO: o servidor do LM Studio não respondeu ou não tem modelo. " + bk.LMSTUDIO_HINT, err=True)
         else:
@@ -797,7 +797,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "tools": normalize(getattr(args, "ferramentas", "") or "") or list(DEFAULT),
             "num_ctx": int(getattr(args, "num_ctx", 0) or 0),
             "ollama_url": guard.url if guard else "",
-            "lmstudio_url": bk.LMSTUDIO_URL if backend == "lmstudio" else "",
+            "lmstudio_url": bk.active_lmstudio_url() if backend == "lmstudio" else "",
         }
         if backend == "lmstudio" and not setup["model"] and lms_models:
             setup["model"] = lms_models[0]
@@ -815,7 +815,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 if guard:
                     wenv["OLLAMA_BASE_URL"] = guard.url
                 else:
-                    wenv.update(ENABLE_OLLAMA_API="False", ENABLE_OPENAI_API="True", OPENAI_API_BASE_URL=bk.LMSTUDIO_URL + "/v1", OPENAI_API_KEY="lm-studio")
+                    wenv.update(ENABLE_OLLAMA_API="False", ENABLE_OPENAI_API="True", OPENAI_API_BASE_URL=bk.active_lmstudio_url() + "/v1", OPENAI_API_KEY="lm-studio")
                 # Busca em documentos (RAG) do Open WebUI usaria um modelo local baixado do HuggingFace; aponta para o Ollama
                 # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
                 if guard:

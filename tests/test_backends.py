@@ -73,3 +73,22 @@ def test_ensure_server_loads_first_chat_model_when_none_listed():
 def test_ensure_server_without_cli_returns_none(monkeypatch):
     monkeypatch.setattr(bk, "lms_exe", lambda: None)
     assert bk.ensure_lmstudio_server(lambda m: None, models=lambda: None) is None
+
+
+def test_finds_server_on_port_4321_and_remembers_it():
+    def fetch(url):
+        if ":4321/v1/models" in url:
+            return {"data": [{"id": "qwen/qwen3.8-27b"}]}
+        raise OSError("sem resposta")
+
+    assert bk.lmstudio_models(fetch=fetch) == ["qwen/qwen3.8-27b"]
+    assert bk.active_lmstudio_url() == "http://127.0.0.1:4321"
+
+
+def test_reads_native_api_format_and_skips_embedding_type():
+    def fetch(url):
+        if url.endswith("/api/v1/models") and ":4321" in url:
+            return {"models": [{"type": "llm", "key": "qwen/qwen3.8-27b"}, {"type": "embedding", "key": "nomic"}]}
+        raise OSError("sem resposta")
+
+    assert bk.lmstudio_models(fetch=fetch) == ["qwen/qwen3.8-27b"]
