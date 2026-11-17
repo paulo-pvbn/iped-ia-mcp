@@ -874,7 +874,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 pass
 
     def load_models(self) -> None:
-        models = gui.ollama_models()
+        models = gui.available_models()
 
         def apply() -> None:
             self.models = models
@@ -911,7 +911,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(0, show)
 
     def refresh_status(self, iped: str = "") -> None:
-        ollama = len(gui.ollama_models())
+        ollama = len(gui.available_models())
         webui = bool(wl.running_open_webui(3737) or wl.find_open_webui_command())
 
         def paint() -> None:
@@ -921,7 +921,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 note.configure(text=text)
 
             chip("iped", "ok" if (Path(iped) / "iped.jar").is_file() else "idle", "pronto" if (Path(iped) / "iped.jar").is_file() else "a informar")
-            chip("ollama", "ok" if ollama else "warn", f"{ollama} modelo(s)" if ollama else "fechado")
+            chip("ollama", "ok" if ollama else "warn", f"{ollama} modelo(s)" if ollama else "sem modelo (abra Ollama ou LM Studio)")
             chip("webui", "ok" if webui else "warn", "encontrado" if webui else "ausente")
             self.env_checked = True
 

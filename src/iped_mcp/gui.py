@@ -102,6 +102,14 @@ def ollama_models(url: str = "http://127.0.0.1:11434") -> list[str]:
         return []
 
 
+def available_models(ollama_url: str = "http://127.0.0.1:11434", lmstudio_url: str = "") -> list[str]:
+    """Modelos de todas as fontes locais (Ollama e servidor do LM Studio), sem repetir."""
+    from iped_mcp import backends as bk
+
+    found = ollama_models(ollama_url) + (bk.lmstudio_models(lmstudio_url or bk.LMSTUDIO_URL) or [])
+    return list(dict.fromkeys(found))
+
+
 def ollama_info(url: str = "http://127.0.0.1:11434") -> tuple[list[dict], dict | None]:
     """(modelos de /api/tags com tamanho, modelos carregados de /api/ps); vazios se o Ollama não responder."""
     base = url.rstrip("/")

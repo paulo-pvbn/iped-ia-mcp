@@ -4,9 +4,10 @@ from iped_mcp import deps as dp
 
 
 class Fake(dp.Env):
-    def __init__(self, files=(), have=(), models=None, python="/usr/bin/python3", webui=False, vc=True, gpu=("RTX", 8.0), java=None, ollama=None):
+    def __init__(self, files=(), have=(), models=None, python="/usr/bin/python3", webui=False, vc=True, gpu=("RTX", 8.0), java=None, ollama=None, lms=None, lms_installed=False):
         self.files, self.have, self.models, self.py = {Path(f) for f in files}, set(have), models, python
         self.webui, self.vc, self._gpu, self.java, self.ollama = webui, vc, gpu, java, ollama
+        self.lms, self.lms_installed = lms, lms_installed
 
     def which(self, name):
         return {"java": self.java}.get(name)
@@ -30,6 +31,12 @@ class Fake(dp.Env):
 
     def ollama_exe(self):
         return self.ollama
+
+    def lmstudio_models(self, url):
+        return self.lms
+
+    def lmstudio_installed(self):
+        return self.lms_installed
 
     def python(self):
         return Path(self.py) if self.py else None
@@ -137,3 +144,21 @@ def test_missing_jre_inside_iped_folder_plans_extraction_there():
     d = by_key(dp.check_all("/iped", env=Fake(files=["/iped/iped.jar"])))
     assert d["java"].status == dp.MISSING and d["java"].required and d["java"].plan.kind == "java"
     assert d["java"].plan.command == (str(Path("/iped") / "jre"),)
+
+
+def _by_key(deps, key):
+    return next(d for d in deps if d.key == key)
+
+
+def test_model_found_in_lmstudio_counts_as_ok():
+    deps = dp.check_all("", env=Fake(models=None, lms=["qwen3-8b"]))
+    model = _by_key(deps, "model")
+    assert model.status == dp.OK and "LM Studio" in model.detail
+    assert _by_key(deps, "ollama").required is False  # sem Ollama, o LM Studio basta
+
+
+def test_lmstudio_installed_but_server_off_explains_how_to_turn_it_on():
+    deps = dp.check_all("", env=Fake(models=None, lms=None, lms_installed=True))
+    model = _by_key(deps, "model")
+    assert model.status == dp.MISSING and "servidor" in model.detail and model.plan.kind == "manual"
+    assert "Developer" in model.plan.note

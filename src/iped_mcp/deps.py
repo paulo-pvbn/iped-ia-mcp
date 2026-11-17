@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from iped_mcp import backends as bk
 from iped_mcp import hardware as hw
 from iped_mcp import installers as ins
 from iped_mcp import webui_launcher as wl
@@ -111,6 +112,13 @@ class Env:
                 return [m.get("name", "") for m in json.load(resp).get("models", [])]
         except Exception:  # noqa: BLE001
             return None
+
+    def lmstudio_models(self, url: str) -> list[str] | None:
+        """Modelos de conversa oferecidos pelo servidor do LM Studio, ou None se ele não respondeu."""
+        return bk.lmstudio_models(url)
+
+    def lmstudio_installed(self) -> bool:
+        return bk.lmstudio_installed()
 
     def ollama_exe(self) -> str | None:
         found = self.which("ollama")
@@ -246,16 +254,24 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
     # -- IA
     out.append(Dep("mcp", "Servidor MCP", "ia", OK, "Embutido neste programa (nada a instalar)", required=True))
     models = env.ollama_models(ollama_url)
+    lms = env.lmstudio_models(bk.LMSTUDIO_URL)
     exe = env.ollama_exe()
     if models is not None or exe:
-        out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=True))
+        out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=not lms))
+    elif lms:
+        out.append(Dep("ollama", "Ollama", "ia", OPTIONAL, "Não instalado (não precisa: o LM Studio está em uso)"))
     else:
-        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"), why="Roda o modelo de IA neste computador."))
+        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"), why="Roda o modelo de IA neste computador. O LM Studio também serve."))
     sugg = suggest_model(gpu[1] if gpu else None)
     if models:
-        out.append(Dep("model", "Modelo de IA", "ia", OK, f"{len(models)} baixado(s): {', '.join(models[:3])}{'…' if len(models) > 3 else ''}", required=True))
+        out.append(Dep("model", "Modelo de IA", "ia", OK, f"{len(models)} baixado(s) no Ollama: {', '.join(models[:3])}{'…' if len(models) > 3 else ''}", required=True))
+    elif lms:
+        out.append(Dep("model", "Modelo de IA", "ia", OK, f"LM Studio: {len(lms)} modelo(s) no servidor: {', '.join(lms[:3])}{'…' if len(lms) > 3 else ''}", required=True))
+    elif lms is None and env.lmstudio_installed():
+        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "LM Studio instalado, mas o servidor local está desligado (ou sem modelo)", required=True, why=bk.LMSTUDIO_HINT,
+                       plan=Plan("manual", note=bk.LMSTUDIO_HINT)))  # fmt: skip
     else:
-        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB).",
+        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB). Ou use o LM Studio.",
                        plan=Plan("pull", (sugg,), f"Baixa {sugg} pelo Ollama (inicia o Ollama sozinho se estiver parado).")))  # fmt: skip
     if env.python_ok_for_webui():
         out.append(Dep("py311", "Python 3.11 para o Open WebUI", "ia", OK, "Disponível"))

@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mcp-port", type=int, default=8000)
     ap.add_argument("--webui-port", type=int, default=3737, help="porta própria: outra origem evita cache/sessão de outros apps em localhost:3000")
     ap.add_argument("--ollama-url", default="http://127.0.0.1:11434")
+    ap.add_argument("--backend", choices=["auto", "ollama", "lmstudio"], default="auto", help="fonte da IA: Ollama ou servidor local do LM Studio (padrão: a que tiver modelo)")
     ap.add_argument("--modelo", default="", help="modelo do Ollama usado no 'Analista IPED' (padrão: o primeiro encontrado)")
     ap.add_argument("--ferramentas", default="", help="ferramentas do IPED mostradas ao modelo no Open WebUI, separadas por vírgula (padrão: as essenciais)")
     ap.add_argument("--num-ctx", type=int, default=0, help="contexto (tokens) do modelo no Open WebUI (padrão: 16384)")
@@ -74,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         tools = asyncio.run(server.mcp.list_tools())
         prompt = HERE / "prompts" / "analista.md"
         ok = len(tools) >= 30 and prompt.is_file() and (HERE / "web-api-launcher.py").is_file()
-        from iped_mcp import deps, gui, gui_app, progress, ui_theme, widgets, wizard  # noqa: F401  (a janela é importável)
+        from iped_mcp import backends, deps, gui, gui_app, progress, ui_theme, widgets, wizard  # noqa: F401  (a janela é importável)
 
         if sys.platform == "win32":
             import tkinter  # noqa: F401  (tem de estar empacotado)
