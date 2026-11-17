@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from iped_mcp import backends as bk
+from iped_mcp.localnet import open_local
 from iped_mcp import hardware as hw
 from iped_mcp import installers as ins
 from iped_mcp import webui_launcher as wl
@@ -108,7 +109,7 @@ class Env:
     def ollama_models(self, url: str) -> list[str] | None:
         """Nomes dos modelos baixados, ou None se o Ollama não respondeu."""
         try:
-            with urllib.request.urlopen(f"{url}/api/tags", timeout=3) as resp:  # noqa: S310
+            with open_local(f"{url}/api/tags", 3) as resp:
                 return [m.get("name", "") for m in json.load(resp).get("models", [])]
         except Exception:  # noqa: BLE001
             return None
@@ -258,8 +259,8 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
     exe = env.ollama_exe()
     if models is not None or exe:
         out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=not lms))
-    elif lms:
-        out.append(Dep("ollama", "Ollama", "ia", OPTIONAL, "Não instalado (não precisa: o LM Studio está em uso)"))
+    elif lms or env.lmstudio_installed():
+        out.append(Dep("ollama", "Ollama", "ia", OPTIONAL, "Não instalado (não precisa: o LM Studio serve como fonte de IA)"))
     else:
         out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"), why="Roda o modelo de IA neste computador. O LM Studio também serve."))
     sugg = suggest_model(gpu[1] if gpu else None)
@@ -314,7 +315,7 @@ def parse_pull_line(line: str) -> tuple[str, float | None]:
 
 def pull_lines(model: str, url: str = "http://127.0.0.1:11434") -> Iterator[str]:  # pragma: no cover - rede
     req = urllib.request.Request(f"{url}/api/pull", data=json.dumps({"model": model}).encode(), headers={"Content-Type": "application/json"})  # noqa: S310
-    with urllib.request.urlopen(req, timeout=3600) as resp:  # noqa: S310
+    with open_local(req, 3600) as resp:
         for raw in resp:
             yield raw.decode("utf-8", "replace")
 

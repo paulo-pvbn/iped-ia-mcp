@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from iped_mcp import backends as bk
+from iped_mcp.localnet import open_local
 from iped_mcp.ollama_guard import OllamaGuard
 from iped_mcp.tools_catalog import DEFAULT, build_filter, normalize
 
@@ -282,7 +283,7 @@ def _api(method: str, url: str, body: object = None, token: str | None = None, t
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers)  # noqa: S310
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+    with open_local(req, timeout) as resp:
         raw = resp.read()
     return json.loads(raw) if raw else None
 
@@ -479,7 +480,7 @@ def running_open_webui(*ports: int) -> str | None:
     for port in dict.fromkeys(ports):
         url = f"http://127.0.0.1:{port}/"
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
+            with open_local(url, 2) as resp:
                 if b"open webui" in resp.read(200000).lower():
                     return url
         except Exception:  # noqa: BLE001, S112

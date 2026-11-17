@@ -162,3 +162,32 @@ def test_lmstudio_installed_but_server_off_explains_how_to_turn_it_on():
     model = _by_key(deps, "model")
     assert model.status == dp.MISSING and "servidor" in model.detail and model.plan.kind == "lmstudio"
     assert "lms server start" in model.plan.note
+
+
+def test_ollama_not_required_when_lmstudio_is_installed():
+    deps = dp.check_all("", env=Fake(models=None, lms=None, lms_installed=True))
+    assert _by_key(deps, "ollama").required is False
+
+
+def test_local_calls_ignore_system_proxy(monkeypatch):
+    import http.server
+    import threading
+
+    from iped_mcp import localnet
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # proxy inexistente: se fosse usado, a chamada falharia
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    with localnet.open_local(f"http://127.0.0.1:{srv.server_address[1]}/", 3) as resp:
+        assert resp.read() == b"ok"
+    srv.shutdown()

@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from iped_mcp import webui_launcher as wl
+from iped_mcp.localnet import open_local
 
 OLLAMA_URL = "https://ollama.com/download/OllamaSetup.exe"
 JRE_URL = "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse"
@@ -126,7 +127,7 @@ class Ops:
 
     def ollama_up(self) -> bool:
         try:
-            with urllib.request.urlopen(f"{OLLAMA_API}/api/tags", timeout=2) as resp:  # noqa: S310
+            with open_local(f"{OLLAMA_API}/api/tags", 2) as resp:
                 json.load(resp)
             return True
         except Exception:  # noqa: BLE001

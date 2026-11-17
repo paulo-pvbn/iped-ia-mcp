@@ -7,7 +7,8 @@ import os
 import shutil
 import subprocess
 import time
-import urllib.request
+
+from iped_mcp.localnet import open_local
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,7 +18,7 @@ LMSTUDIO_HINT = "No LM Studio: aba Developer (ícone </>) → ligue o servidor l
 
 
 def _get_json(url: str, timeout: float = 3) -> object:
-    with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310  (127.0.0.1)
+    with open_local(url, timeout) as resp:
         return json.load(resp)
 
 
@@ -90,13 +91,22 @@ def parse_lms_ls(text: str) -> list[str]:
 
 
 def _run(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
+    """Roda um comando sem janela. Se passar do prazo, deixa o processo seguir (o `lms server start` pode ficar vivo) e devolve 124."""
+    import tempfile
+
     from iped_mcp import webui_launcher as wl  # fora do topo: o launcher importa este módulo
 
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace", check=False, **wl.hidden_kwargs())  # noqa: S603
-        return out.returncode, (out.stdout or "") + (out.stderr or "")
-    except (OSError, subprocess.SubprocessError) as exc:
-        return 1, str(exc)
+    with tempfile.TemporaryFile() as sink:  # arquivo em vez de pipe: um processo filho vivo não trava a leitura
+        try:
+            proc = subprocess.Popen(cmd, stdout=sink, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **wl.hidden_kwargs())  # noqa: S603
+        except OSError as exc:
+            return 1, str(exc)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            code = 124
+        sink.seek(0)
+        return code, sink.read().decode("utf-8", errors="replace")
 
 
 def ensure_lmstudio_server(
@@ -108,7 +118,7 @@ def ensure_lmstudio_server(
     Se o servidor sobe mas nenhum modelo aparece, tenta carregar o primeiro modelo de conversa (`lms load`); esses
     comandos seguem a ajuda do `lms` e não foram validados contra todas as versões.
     """
-    run = run or (lambda c: _run(c, 600))
+    run = run or (lambda c: _run(c, 600 if c[1:2] == ["load"] else 45))
     models = models or lmstudio_models
     have = models()
     if have:
@@ -120,9 +130,9 @@ def ensure_lmstudio_server(
     if have is None:
         say("   LM Studio: ligando o servidor local ($ lms server start)…")
         code, out = run([exe, "server", "start"])
-        if code != 0:
+        if code not in (0, 124):  # 124: ainda rodando; o que vale é o servidor responder
             say(f"   LM Studio: `lms server start` falhou (código {code}): {out.strip()[:200]}")
-    for _ in range(20):
+    for _ in range(40):
         have = models()
         if have is not None:
             break
