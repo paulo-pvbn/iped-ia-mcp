@@ -383,3 +383,13 @@ def test_quiet_background_tasks_only_turns_off_enabled_keys(monkeypatch):
     assert launcher.quiet_background_tasks("http://x", "t") == [] and sent == []
     monkeypatch.setattr(launcher, "_api", lambda *a, **k: None)
     assert launcher.quiet_background_tasks("http://x", "t") == []
+
+
+def test_choosing_the_inner_iped_folder_selects_the_case_folder(tmp_path):
+    case = tmp_path / "bumo"
+    (case / "iped" / "data").mkdir(parents=True)
+    assert launcher.find_cases(case / "iped") == [case]
+    assert launcher.sources_from_cases_dir(case / "iped")[0]["path"] == str(case)
+    empty = tmp_path / "outra" / "iped"
+    empty.mkdir(parents=True)
+    assert launcher.find_cases(empty) == []  # uma pasta 'iped' vazia não vira caso

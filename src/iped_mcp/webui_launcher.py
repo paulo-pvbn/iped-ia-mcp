@@ -61,6 +61,8 @@ def find_cases(folder: Path, depth: int = 3) -> list[Path]:
     """Pastas de caso do IPED dentro de ``folder`` (ou ela mesma), procurando até ``depth`` níveis abaixo."""
     if looks_like_case(folder):
         return [folder]
+    if folder.name.lower() == "iped" and any((folder / sub).is_dir() for sub in ("data", "index", "lib", "tools", "htm")):
+        return [folder.parent]  # escolheram a pasta 'iped' de dentro do caso: o caso é a pasta que a contém
     found: list[Path] = []
     if depth <= 0:
         return found
@@ -660,7 +662,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             return 2
         sources = sources_from_cases_dir(Path(cases))
         if not sources:
-            print(f"Nenhum caso do IPED encontrado em {cases} (procuro a pasta 'iped' ou IPED-SearchApp).",
+            print(f"Nenhum caso do IPED encontrado em {cases} (procuro uma pasta 'iped' ou o IPED-SearchApp: escolha a pasta de saída do caso, a que contém a pasta 'iped').",
                   file=sys.stderr)  # fmt: skip
             return 2
         temp_sources = Path(tempfile.mkdtemp(prefix="iped-mcp-")) / "multicases.json"
