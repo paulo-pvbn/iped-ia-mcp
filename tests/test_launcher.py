@@ -349,3 +349,45 @@ def test_choosing_the_inner_iped_folder_selects_the_case_folder(tmp_path):
     assert launcher.find_cases(empty) == []  # uma pasta 'iped' vazia não vira caso
 
 
+
+
+def test_provision_removes_stale_local_openai_connection():
+    import http.server
+    import json as _json
+    import threading
+
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def _send(self, obj):
+            body = _json.dumps(obj).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path == "/openai/config":
+                self._send({"ENABLE_OPENAI_API": True, "OPENAI_API_BASE_URLS": ["http://127.0.0.1:4321/v1"], "OPENAI_API_KEYS": ["lm-studio"]})
+            elif self.path == "/ollama/config":
+                self._send({"OLLAMA_API_CONFIGS": {}})
+            elif self.path == "/api/models":
+                self._send({"data": [{"id": "qwen:7b", "owned_by": "ollama"}]})
+            else:
+                self._send({"status": True})
+
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            seen.append((self.path, body))
+            self._send({"token": "T"} if self.path.endswith("/signin") else body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    ok, msg = launcher.provision_open_webui(f"http://127.0.0.1:{srv.server_address[1]}", "http://127.0.0.1:8000/mcp", "tok", "P", ollama_url="http://127.0.0.1:11435")
+    srv.shutdown()
+    assert ok, msg
+    upd = dict(seen)["/openai/config/update"]
+    assert upd["ENABLE_OPENAI_API"] is False and upd["OPENAI_API_BASE_URLS"] == []

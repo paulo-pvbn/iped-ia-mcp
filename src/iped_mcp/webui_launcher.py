@@ -344,6 +344,19 @@ def provision_open_webui(
             current = _api("GET", f"{base}/ollama/config", None, token) or {}
             _api("POST", f"{base}/ollama/config/update",
                  {"ENABLE_OLLAMA_API": True, "OLLAMA_BASE_URLS": [ollama_url], "OLLAMA_API_CONFIGS": {"0": (current.get("OLLAMA_API_CONFIGS") or {}).get("0", {})}}, token)  # fmt: skip
+        if ollama_url:  # conexões locais compatíveis com OpenAI que sobraram de versões antigas (ex.: 127.0.0.1:4321) só geram erro e lentidão
+            try:
+                oc = _api("GET", f"{base}/openai/config", None, token) or {}
+                urls = list(oc.get("OPENAI_API_BASE_URLS") or [])
+                keys = list(oc.get("OPENAI_API_KEYS") or [])
+                keep = [i for i, u in enumerate(urls) if not any(h in str(u) for h in ("127.0.0.1", "localhost", "[::1]"))]
+                if len(keep) != len(urls):
+                    _api("POST", f"{base}/openai/config/update",
+                         {"ENABLE_OPENAI_API": bool(keep), "OPENAI_API_BASE_URLS": [urls[i] for i in keep], "OPENAI_API_KEYS": [keys[i] if i < len(keys) else "" for i in keep],
+                          "OPENAI_API_CONFIGS": {}}, token)  # fmt: skip
+                    say("   Open WebUI: removi uma conexão local antiga (LM Studio) que não existe mais.")
+            except Exception:  # noqa: BLE001, S110  (opcional)
+                pass
         try:
             off = quiet_background_tasks(base, token)
             if off:
@@ -801,7 +814,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
                 wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
                 wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
-                wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
+                wenv.update(PYTHONUTF8="1", PYTHONFAULTHANDLER="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 # Serviços deste computador nunca passam pelo proxy do sistema (o Open WebUI usa o proxy do ambiente nas chamadas ao Ollama).
                 local = "127.0.0.1,localhost,::1"
                 for var in ("NO_PROXY", "no_proxy"):
@@ -846,6 +859,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             break
         for p in ended:
             say(f"Terminou: {names.get(id(p), 'processo')} (código {p.returncode}).", err=True)
+            if p is webui_proc and p.returncode == 3221225477:  # 0xC0000005: falha interna do Python/biblioteca nativa, costuma ser passageira
+                say("O Open WebUI caiu por uma falha interna do Windows (0xC0000005). Feche e inicie o chat de novo; se repetir, envie o log abaixo.", err=True)
             if p is webui_proc:
                 say(f"Fim do log ({OPENWEBUI_HOME / 'open-webui.log'}):", err=True)
                 say(log_tail(OPENWEBUI_HOME / "open-webui.log", 30), err=True)
