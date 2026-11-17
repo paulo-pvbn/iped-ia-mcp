@@ -393,3 +393,39 @@ def test_choosing_the_inner_iped_folder_selects_the_case_folder(tmp_path):
     empty = tmp_path / "outra" / "iped"
     empty.mkdir(parents=True)
     assert launcher.find_cases(empty) == []  # uma pasta 'iped' vazia não vira caso
+
+
+def test_provision_with_lmstudio_uses_given_model_when_webui_lists_none():
+    import http.server
+    import json as _json
+    import threading
+
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def _send(self, obj):
+            body = _json.dumps(obj).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            self._send({"data": []} if self.path == "/api/models" else {})
+
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            seen.append((self.path, body))
+            self._send({"token": "T"} if self.path.endswith("/signin") else body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT", model="qwen/qwen3.8-27b", lmstudio_url="http://127.0.0.1:4321")
+    srv.shutdown()
+    assert ok, msg
+    created = dict(seen)["/api/v1/models/create"]
+    assert created["base_model_id"] == "qwen/qwen3.8-27b"

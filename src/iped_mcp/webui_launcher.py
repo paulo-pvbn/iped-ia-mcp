@@ -377,6 +377,8 @@ def provision_open_webui(
         if lmstudio_url:
             bases = [m for m in bases if m.get("owned_by") != "ollama"] or bases
             chosen = chosen or (bases[0] if bases else None)
+            if chosen is None and model:  # o Open WebUI ainda não listou: usa o nome que o próprio LM Studio informou
+                chosen = {"id": model}
         else:
             chosen = chosen or next((m for m in bases if m.get("owned_by") == "ollama"), None) or (bases[0] if bases else None)
         if chosen is None:
@@ -833,6 +835,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                     wenv.setdefault("RAG_OPENAI_API_KEY", "lm-studio")
                     wenv.setdefault("RAG_EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5")
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
+                # Serviços deste computador nunca passam pelo proxy do sistema (o Open WebUI usa o proxy do ambiente nas chamadas ao LM Studio/Ollama).
+                local = "127.0.0.1,localhost,::1"
+                for var in ("NO_PROXY", "no_proxy"):
+                    wenv[var] = f"{local},{wenv[var]}" if wenv.get(var) else local
                 # Tudo local: sem internet o Open WebUI ficava minutos tentando buscar o modelo de embeddings no Hugging Face ao subir.
                 # Em modo offline essa tentativa falha na hora (a busca em documentos do Open WebUI não é usada pelo IPED).
                 wenv.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", OFFLINE_MODE="true", HF_HUB_DISABLE_TELEMETRY="1")
