@@ -117,3 +117,18 @@ def test_case_folder_protection(tmp_path):
     assert "Não encontrei um caso" in wz.no_case_message(other)
     assert wz.no_case_message(tmp_path / "nao_existe") == "A pasta não existe."
     assert wz.case_summary(case) == "✓  Caso encontrado: caso1"
+
+
+def test_iped_folder_protection(tmp_path):
+    from iped_mcp import wizard as wz
+
+    root = tmp_path / "IPED" / "iped-4.3.1"
+    (root / "lib").mkdir(parents=True)
+    (root / "iped.jar").write_bytes(b"x")
+    assert str(root) in wz.iped_root_message(root / "lib")  # subpasta do IPED: aponta a pasta certa
+    assert str(root) in wz.iped_root_message(tmp_path / "IPED")  # pasta acima: acha a de dentro
+    case = tmp_path / "caso"
+    case.mkdir()
+    assert "não a pasta do caso" in wz.iped_root_message(case)
+    assert wz.iped_root_message(tmp_path / "nada") == "A pasta não existe."
+    assert wz.iped_root_message(None).startswith("Escolha a pasta")

@@ -420,8 +420,14 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.field(
             self.form, "Pasta do IPED", self.vars["iped"], hint="Exemplo: C:\\IPED\\iped-4.3.1",
             browse=[("Procurar…", lambda: self.ask_dir(self.vars["iped"], "Pasta do IPED (a que contém o iped.jar)"))],
-            live=lambda: "✓  iped.jar encontrado" if not wz.validate("iped", self.state) else "",
+            live=lambda: self._iped_live(),
         )  # fmt: skip
+
+    def _iped_live(self) -> str:
+        if not self.vars["iped"].get().strip():
+            return ""
+        err = wz.validate("iped", self.state)
+        return "✗  " + err if err else "✓  iped.jar encontrado"
 
     def step_origem(self) -> None:
         self.subtitle.configure(text="A imagem forense (E01, dd, UFDR…) ou a pasta com as evidências a processar.")

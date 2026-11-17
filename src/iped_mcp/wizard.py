@@ -110,7 +110,7 @@ def validate(step_key: str, state: State) -> str:
     """Mensagem de erro em português para a etapa, ou "" se estiver tudo certo."""
     if step_key == "iped":
         if not state.iped or not (Path(state.iped) / "iped.jar").is_file():
-            return "Não encontrei o iped.jar nessa pasta. Escolha a pasta de instalação do IPED."
+            return iped_root_message(Path(state.iped) if state.iped else None)
     elif step_key == "origem":
         if not state.origem or not Path(state.origem).exists():
             return "Escolha o arquivo de imagem ou a pasta com as evidências."
@@ -137,6 +137,41 @@ def validate(step_key: str, state: State) -> str:
     elif step_key == "ia" and not state.modelo.strip():
         return "Escolha um modelo (abra o Ollama ou ligue o servidor local do LM Studio se a lista estiver vazia)."
     return ""
+
+
+def find_iped_root(folder: Path) -> Path | None:
+    """Pasta de instalação do IPED perto de `folder` (a de cima, ou uma subpasta até 2 níveis), a que tem o iped.jar."""
+    if not folder.is_dir():
+        return None
+    for parent in list(folder.parents)[:3]:
+        if (parent / "iped.jar").is_file():
+            return parent
+    level = [folder]
+    for _ in range(2):
+        nxt: list[Path] = []
+        for current in level:
+            try:
+                kids = sorted(c for c in current.iterdir() if c.is_dir())
+            except OSError:
+                continue
+            for kid in kids:
+                if (kid / "iped.jar").is_file():
+                    return kid
+            nxt.extend(kids)
+        level = nxt
+    return None
+
+
+def iped_root_message(folder: Path | None) -> str:
+    """Erro para a pasta do IPED, apontando a pasta certa quando ela está por perto."""
+    if folder is None or not str(folder).strip():
+        return "Escolha a pasta de instalação do IPED (a que contém o iped.jar)."
+    if not folder.is_dir():
+        return "A pasta não existe."
+    near = find_iped_root(folder)
+    if near:
+        return f"Não encontrei o iped.jar aqui, mas achei o IPED em: {near}. Escolha essa pasta."
+    return "Não encontrei o iped.jar nessa pasta. Escolha a pasta de instalação do IPED, a que contém o iped.jar (não a pasta do caso)."
 
 
 def no_case_message(folder: Path) -> str:
