@@ -89,6 +89,14 @@ def sources_from_cases_dir(cases_dir: Path) -> list[dict[str, str]]:
     return out
 
 
+def with_local_no_proxy(env: dict) -> dict:
+    """Serviços deste computador (127.0.0.1) nunca passam pelo proxy do sistema (proxy corporativo responde 407 e o serviço parece desligado)."""
+    local = "127.0.0.1,localhost,::1"
+    for var in ("NO_PROXY", "no_proxy"):
+        env[var] = f"{local},{env[var]}" if env.get(var) else local
+    return env
+
+
 def webapi_sources(url: str, tries: int = 5, wait: float = 3.0) -> tuple[list, str]:
     """Casos que a Web API do IPED diz ter (GET /sources/), esperando um pouco. Devolve (lista, resposta crua resumida)."""
     raw = ""
@@ -765,6 +773,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         env = dict(os.environ, IPED_ENDPOINTS=endpoints_env(endpoints), IPED_MCP_PORT=str(args.mcp_port))
         env.pop("IPED_MCP_ALLOW_DESTRUCTIVE", None)  # remover marcadores se faz no próprio IPED: tools destrutivas sempre desligadas
         env.pop("IPED_URL", None)  # IPED_URL e IPED_ENDPOINTS juntas são erro no MCP
+        with_local_no_proxy(env)  # o MCP fala com as Web APIs do IPED em 127.0.0.1: sem isso o proxy da rede intercepta (407) e o MCP vê 0 casos
         env["IPED_MCP_TEXT_CHARS"] = str(text_chars_for(int(getattr(args, "num_ctx", 0) or NUM_CTX)))  # leituras curtas: cabem no contexto
         env["FASTMCP_CHECK_FOR_UPDATES"] = "off"  # sem consulta à internet na subida (pode demorar em rede restrita)
         if token:
@@ -840,9 +849,7 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
                 wenv.update(PYTHONUTF8="1", PYTHONFAULTHANDLER="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 # Serviços deste computador nunca passam pelo proxy do sistema (o Open WebUI usa o proxy do ambiente nas chamadas ao Ollama).
-                local = "127.0.0.1,localhost,::1"
-                for var in ("NO_PROXY", "no_proxy"):
-                    wenv[var] = f"{local},{wenv[var]}" if wenv.get(var) else local
+                with_local_no_proxy(wenv)
                 # Tudo local: sem internet o Open WebUI ficava minutos tentando buscar o modelo de embeddings no Hugging Face ao subir.
                 # Em modo offline essa tentativa falha na hora (a busca em documentos do Open WebUI não é usada pelo IPED).
                 wenv.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", OFFLINE_MODE="true", HF_HUB_DISABLE_TELEMETRY="1")

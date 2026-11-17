@@ -420,3 +420,9 @@ def test_webapi_sources_reports_empty_and_found():
     items, _raw = launcher.webapi_sources(url, tries=1, wait=0)
     srv.shutdown()
     assert items == [{"id": "caso"}]
+
+
+def test_local_no_proxy_is_added_to_child_env():
+    env = launcher.with_local_no_proxy({"NO_PROXY": "intra.local"})
+    assert env["NO_PROXY"].startswith("127.0.0.1,localhost,::1") and "intra.local" in env["NO_PROXY"]
+    assert launcher.with_local_no_proxy({})["no_proxy"] == "127.0.0.1,localhost,::1"
