@@ -220,52 +220,6 @@ def test_provision_open_webui_against_fake_server():
     assert order.index("/ollama/config/update") < order.index("/api/v1/models/create")
 
 
-def test_provision_open_webui_with_lmstudio():
-    import http.server
-    import json as _json
-    import threading
-
-    seen = []
-
-    class H(http.server.BaseHTTPRequestHandler):
-        def _send(self, obj):
-            body = _json.dumps(obj).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def do_GET(self):
-            seen.append(("GET", self.path))
-            if self.path == "/api/models":
-                self._send({"data": [{"id": "qwen:7b", "owned_by": "ollama"}, {"id": "qwen3-8b", "owned_by": "openai"}]})
-            else:
-                self._send({})
-
-        def do_POST(self):
-            body = _json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            seen.append(("POST", self.path, body))
-            self._send({"token": "T"} if self.path.endswith("/signin") else body)
-
-        def log_message(self, *a):
-            pass
-
-    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{srv.server_address[1]}"
-    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT", lmstudio_url="http://127.0.0.1:1234")
-    srv.shutdown()
-    assert ok, msg
-    posts = {p[1]: p[2] for p in seen if p[0] == "POST"}
-    assert posts["/openai/config/update"]["OPENAI_API_BASE_URLS"] == ["http://127.0.0.1:1234/v1"]
-    assert posts["/openai/config/update"]["ENABLE_OPENAI_API"] is True
-    assert posts["/ollama/config/update"]["ENABLE_OLLAMA_API"] is False
-    model = posts["/api/v1/models/create"]
-    assert model["base_model_id"] == "qwen3-8b"  # ignora o modelo do Ollama
-    assert "num_ctx" not in model["params"] and "keep_alive" not in model["params"]
-    assert model["params"]["temperature"] == 0.5 and model["params"]["top_p"] == 0.6
-
-
 def _server_names() -> list[str]:
     import asyncio
     import sys
@@ -395,37 +349,3 @@ def test_choosing_the_inner_iped_folder_selects_the_case_folder(tmp_path):
     assert launcher.find_cases(empty) == []  # uma pasta 'iped' vazia não vira caso
 
 
-def test_provision_with_lmstudio_uses_given_model_when_webui_lists_none():
-    import http.server
-    import json as _json
-    import threading
-
-    seen = []
-
-    class H(http.server.BaseHTTPRequestHandler):
-        def _send(self, obj):
-            body = _json.dumps(obj).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def do_GET(self):
-            self._send({"data": []} if self.path == "/api/models" else {})
-
-        def do_POST(self):
-            body = _json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            seen.append((self.path, body))
-            self._send({"token": "T"} if self.path.endswith("/signin") else body)
-
-        def log_message(self, *a):
-            pass
-
-    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{srv.server_address[1]}"
-    ok, msg = launcher.provision_open_webui(base, "http://127.0.0.1:8000/mcp", "tok", "PROMPT", model="qwen/qwen3.8-27b", lmstudio_url="http://127.0.0.1:4321")
-    srv.shutdown()
-    assert ok, msg
-    created = dict(seen)["/api/v1/models/create"]
-    assert created["base_model_id"] == "qwen/qwen3.8-27b"

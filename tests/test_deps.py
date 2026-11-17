@@ -4,10 +4,9 @@ from iped_mcp import deps as dp
 
 
 class Fake(dp.Env):
-    def __init__(self, files=(), have=(), models=None, python="/usr/bin/python3", webui=False, vc=True, gpu=("RTX", 8.0), java=None, ollama=None, lms=None, lms_installed=False):
+    def __init__(self, files=(), have=(), models=None, python="/usr/bin/python3", webui=False, vc=True, gpu=("RTX", 8.0), java=None, ollama=None):
         self.files, self.have, self.models, self.py = {Path(f) for f in files}, set(have), models, python
         self.webui, self.vc, self._gpu, self.java, self.ollama = webui, vc, gpu, java, ollama
-        self.lms, self.lms_installed = lms, lms_installed
 
     def which(self, name):
         return {"java": self.java}.get(name)
@@ -31,12 +30,6 @@ class Fake(dp.Env):
 
     def ollama_exe(self):
         return self.ollama
-
-    def lmstudio_models(self, url):
-        return self.lms
-
-    def lmstudio_installed(self):
-        return self.lms_installed
 
     def python(self):
         return Path(self.py) if self.py else None
@@ -150,25 +143,6 @@ def _by_key(deps, key):
     return next(d for d in deps if d.key == key)
 
 
-def test_model_found_in_lmstudio_counts_as_ok():
-    deps = dp.check_all("", env=Fake(models=None, lms=["qwen3-8b"]))
-    model = _by_key(deps, "model")
-    assert model.status == dp.OK and "LM Studio" in model.detail
-    assert _by_key(deps, "ollama").required is False  # sem Ollama, o LM Studio basta
-
-
-def test_lmstudio_installed_but_server_off_explains_how_to_turn_it_on():
-    deps = dp.check_all("", env=Fake(models=None, lms=None, lms_installed=True))
-    model = _by_key(deps, "model")
-    assert model.status == dp.MISSING and "servidor" in model.detail and model.plan.kind == "lmstudio"
-    assert "lms server start" in model.plan.note
-
-
-def test_ollama_not_required_when_lmstudio_is_installed():
-    deps = dp.check_all("", env=Fake(models=None, lms=None, lms_installed=True))
-    assert _by_key(deps, "ollama").required is False
-
-
 def test_local_calls_ignore_system_proxy(monkeypatch):
     import http.server
     import threading
@@ -191,3 +165,30 @@ def test_local_calls_ignore_system_proxy(monkeypatch):
     with localnet.open_local(f"http://127.0.0.1:{srv.server_address[1]}/", 3) as resp:
         assert resp.read() == b"ok"
     srv.shutdown()
+
+
+def test_presets_follow_vram_and_match_suggestion():
+    assert dp.recommended_preset(None).tag == "qwen3:4b"
+    assert dp.recommended_preset(4).label == "Leve"
+    assert dp.recommended_preset(8).tag == "qwen3:8b"
+    assert dp.recommended_preset(12).tag == "qwen3:14b"
+    assert dp.recommended_preset(24).tag == "qwen3:30b"
+    for vram in (None, 4, 8, 12, 24):
+        assert dp.suggest_model(vram) == dp.recommended_preset(vram).tag
+    assert [x.tag for x in dp.MODEL_PRESETS] == sorted({x.tag for x in dp.MODEL_PRESETS}, key=lambda t: float(t.split(":")[1][:-1]))
+
+
+def test_manual_guides_name_the_page_and_the_command():
+    ollama = dp.manual_guide("ollama")
+    assert dp.OLLAMA_DOWNLOAD_URL in ollama and "OllamaSetup.exe" in ollama and "Verificar de novo" in ollama
+    model = dp.manual_guide("model", "qwen3:14b")
+    assert "ollama pull qwen3:14b" in model and "success" in model
+
+
+def test_ollama_is_required_and_offers_automatic_install_with_manual_fallback():
+    deps = dp.check_all("", env=Fake(models=None, ollama=None))
+    ollama = _by_key(deps, "ollama")
+    assert ollama.required and ollama.plan.kind == "ollama"
+    assert "passo a passo" in ollama.why
+    model = _by_key(deps, "model")
+    assert model.plan.kind == "pull" and model.plan.command[0] == dp.suggest_model(8.0)

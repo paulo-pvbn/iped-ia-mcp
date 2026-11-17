@@ -18,7 +18,6 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from iped_mcp import backends as bk
 from iped_mcp.localnet import open_local
 from iped_mcp import hardware as hw
 from iped_mcp import installers as ins
@@ -114,13 +113,6 @@ class Env:
         except Exception:  # noqa: BLE001
             return None
 
-    def lmstudio_models(self, url: str) -> list[str] | None:
-        """Modelos de conversa oferecidos pelo servidor do LM Studio, ou None se ele não respondeu."""
-        return bk.lmstudio_models(url)
-
-    def lmstudio_installed(self) -> bool:
-        return bk.lmstudio_installed()
-
     def ollama_exe(self) -> str | None:
         found = self.which("ollama")
         if found:
@@ -156,15 +148,64 @@ class Env:
 
 
 # ------------------------------------------------------------------------------------------ verificação
+OLLAMA_DOWNLOAD_URL = "https://ollama.com/download/windows"
+
+
+@dataclass(frozen=True)
+class ModelPreset:
+    """Modelo pronto para baixar pelo Ollama, com o que ele pede do computador (tamanhos aproximados)."""
+
+    label: str
+    tag: str
+    size: str
+    min_vram_gb: float
+    note: str
+
+
+MODEL_PRESETS = (
+    ModelPreset("Leve", "qwen3:4b", "≈ 2,5 GB", 0.0, "Placas de vídeo pequenas (menos de 6 GB) ou só processador. Respostas rápidas, análise mais simples."),
+    ModelPreset("Equilibrado", "qwen3:8b", "≈ 5,2 GB", 6.0, "Boa para placas de 6 a 11 GB. O melhor custo entre velocidade e qualidade."),
+    ModelPreset("Potente", "qwen3:14b", "≈ 9,3 GB", 12.0, "Placas de 12 GB ou mais. Raciocina melhor sobre muitos itens."),
+    ModelPreset("Máximo", "qwen3:30b", "≈ 19 GB", 20.0, "Placas de 20 GB ou mais (ou muita memória RAM). Mais lenta, a mais capaz."),
+)
+
+
+def recommended_preset(vram_gb: float | None) -> ModelPreset:
+    """O maior modelo pronto que cabe na memória da placa de vídeo (é só uma sugestão)."""
+    best = MODEL_PRESETS[0]
+    for preset in MODEL_PRESETS:
+        if vram_gb is not None and vram_gb >= preset.min_vram_gb:
+            best = preset
+    return best
+
+
 def suggest_model(vram_gb: float | None) -> str:
     """Modelo sugerido para baixar, conforme a memória da placa de vídeo (é só uma sugestão)."""
-    if vram_gb is None or vram_gb < 6:
-        return "qwen3:4b"
-    if vram_gb < 12:
-        return "qwen3:8b"
-    if vram_gb < 20:
-        return "qwen3:14b"
-    return "qwen3:30b"
+    return recommended_preset(vram_gb).tag
+
+
+def manual_guide(kind: str, model: str = "") -> str:
+    """Roteiro passo a passo para fazer à mão o que a instalação automática não conseguiu (kind: ollama | model)."""
+    if kind == "ollama":
+        return (
+            "Não consegui instalar o Ollama sozinho. Faça assim, leva uns 3 minutos:\n\n"
+            f"1. Abra no navegador: {OLLAMA_DOWNLOAD_URL}\n"
+            "2. Clique em \"Download for Windows\" e espere baixar o OllamaSetup.exe.\n"
+            "3. Dê dois cliques no OllamaSetup.exe e clique em \"Install\" (não precisa mudar nada).\n"
+            "4. Ao terminar, abra o Ollama pelo menu Iniciar. Um ícone de lhama aparece perto do relógio.\n"
+            "5. Volte aqui e clique em \"Verificar de novo\".\n\n"
+            "Se o Windows ou o antivírus bloquear o instalador, libere-o e tente de novo; "
+            "em computador de rede, peça ao suporte para liberar ollama.com."
+        )
+    tag = model or "qwen3:8b"
+    return (
+        f"Não consegui baixar o modelo {tag} sozinho. Faça assim:\n\n"
+        "1. Confirme que o Ollama está aberto (ícone de lhama perto do relógio; se não, abra pelo menu Iniciar).\n"
+        "2. Abra o \"Prompt de Comando\" (tecla Windows, digite cmd e Enter).\n"
+        f"3. Digite: ollama pull {tag}   e aperte Enter. Pode levar de alguns minutos a uma hora; se a internet cair, repita o comando que ele continua de onde parou.\n"
+        "4. Quando aparecer \"success\", volte aqui e clique em \"Verificar de novo\".\n\n"
+        "Se der erro de conexão, confira a internet ou o proxy da rede."
+    )
 
 
 def _winget(package: str, note: str = "", validated: bool = True, kind: str = "winget") -> Plan:
@@ -255,24 +296,17 @@ def check_all(iped_root: str = "", ollama_url: str = "http://127.0.0.1:11434", e
     # -- IA
     out.append(Dep("mcp", "Servidor MCP", "ia", OK, "Embutido neste programa (nada a instalar)", required=True))
     models = env.ollama_models(ollama_url)
-    lms = env.lmstudio_models(bk.LMSTUDIO_URL)
     exe = env.ollama_exe()
     if models is not None or exe:
-        out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=not lms))
-    elif lms or env.lmstudio_installed():
-        out.append(Dep("ollama", "Ollama", "ia", OPTIONAL, "Não instalado (não precisa: o LM Studio serve como fonte de IA)"))
+        out.append(Dep("ollama", "Ollama", "ia", OK, "Em execução" if models is not None else "Instalado (abra o Ollama)", required=True))
     else:
-        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"), why="Roda o modelo de IA neste computador. O LM Studio também serve."))
+        out.append(Dep("ollama", "Ollama", "ia", MISSING, "Não instalado", required=True, plan=_winget("Ollama.Ollama", kind="ollama"),
+                       why="Roda o modelo de IA neste computador. Se a instalação automática falhar, o programa mostra o passo a passo manual."))  # fmt: skip
     sugg = suggest_model(gpu[1] if gpu else None)
     if models:
         out.append(Dep("model", "Modelo de IA", "ia", OK, f"{len(models)} baixado(s) no Ollama: {', '.join(models[:3])}{'…' if len(models) > 3 else ''}", required=True))
-    elif lms:
-        out.append(Dep("model", "Modelo de IA", "ia", OK, f"LM Studio: {len(lms)} modelo(s) no servidor: {', '.join(lms[:3])}{'…' if len(lms) > 3 else ''}", required=True))
-    elif lms is None and env.lmstudio_installed():
-        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "LM Studio instalado, mas o servidor local está desligado (ou sem modelo)", required=True, why=bk.LMSTUDIO_HINT,
-                       plan=Plan("lmstudio", (), "Liga o servidor local do LM Studio (lms server start) e carrega um modelo se preciso.")))  # fmt: skip
     else:
-        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB). Ou use o LM Studio.",
+        out.append(Dep("model", "Modelo de IA", "ia", MISSING, "Nenhum modelo baixado", required=True, why=f"Sugestão para a sua placa: {sugg} (baixa alguns GB, uma vez só).",
                        plan=Plan("pull", (sugg,), f"Baixa {sugg} pelo Ollama (inicia o Ollama sozinho se estiver parado).")))  # fmt: skip
     if env.python_ok_for_webui():
         out.append(Dep("py311", "Python 3.11 para o Open WebUI", "ia", OK, "Disponível"))
@@ -338,9 +372,6 @@ def run_plan(  # noqa: C901
         return ins.ensure_jre(ops, Path(plan.command[0]), progress)
     if plan.kind == "vcredist":
         return ins.ensure_vcredist(ops, progress)
-    if plan.kind == "lmstudio":
-        found = bk.ensure_lmstudio_server(say)
-        return Result(bool(found), 0 if found else 1, "" if found else "O servidor do LM Studio não ficou pronto. " + bk.LMSTUDIO_HINT)
     if plan.kind == "pull":
         model = plan.command[0]
         ready = ins.ensure_ollama_running(ops)

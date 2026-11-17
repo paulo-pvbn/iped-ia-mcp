@@ -10,6 +10,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from iped_mcp import deps, gui, progress, sysmon, ui_theme, widgets
@@ -499,33 +500,28 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     def step_ia(self) -> None:
         ttk = self.ttk
-        self.subtitle.configure(text="Modelo local (Ollama ou LM Studio) e ferramentas que a IA pode usar no caso. Nada sai do seu computador.")
+        self.subtitle.configure(text="Modelo local (Ollama) e ferramentas que a IA pode usar no caso. Nada sai do seu computador.")
         box = ttk.Frame(self.form)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         box.columnconfigure(0, weight=1)
         ttk.Label(box, text="Modelo de IA", font=self.f["bold"]).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        names = {"auto": "Automática (a que tiver modelo)", "ollama": "Ollama", "lmstudio": "LM Studio"}
-        self.backend_var = self.tk.StringVar(value=names.get(wl.load_config().get("backend", "auto"), names["auto"]))
-        src = ttk.Combobox(box, textvariable=self.backend_var, values=list(names.values()), state="readonly", width=30)
-        src.grid(row=0, column=1, sticky="e", pady=(0, 6))
-
-        def save_backend(*_a) -> None:
-            cfg = wl.load_config()
-            cfg["backend"] = next((k for k, v in names.items() if v == self.backend_var.get()), "auto")
-            wl.save_config(cfg)
-
-        def backend_changed(*_a) -> None:
-            save_backend()
-            if wl.load_config().get("backend", "auto") != "ollama" and not self.models:
-                threading.Thread(target=self.autostart_lmstudio, daemon=True).start()
-
-        src.bind("<<ComboboxSelected>>", backend_changed)
         self.cmb_modelo = ttk.Combobox(box, textvariable=self.vars["modelo"], values=self.models)
         self.cmb_modelo.grid(row=1, column=0, sticky="ew")
         ttk.Button(box, text="Hardware…", command=self.show_hardware).grid(row=1, column=1, padx=(8, 0))
         self.model_note = ttk.Label(box, text="", style="Muted.TLabel", justify="left")
         self.model_note.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.wraps.append(self.model_note)
+        ttk.Label(box, text="Não tem modelo? Baixe um pronto (uma vez só, precisa de internet):", style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        labels = [f"{x.label} — {x.tag} ({x.size})" for x in deps.MODEL_PRESETS]
+        self.preset_var = self.tk.StringVar(value=labels[0])
+        self.cmb_preset = ttk.Combobox(box, textvariable=self.preset_var, values=labels, state="readonly")
+        self.cmb_preset.grid(row=4, column=0, sticky="ew")
+        self.btn_pull = ttk.Button(box, text="Baixar e usar", style="Primary.TButton", command=lambda: self.pull_preset(labels))
+        self.btn_pull.grid(row=4, column=1, padx=(8, 0))
+        self.preset_note = ttk.Label(box, text=deps.MODEL_PRESETS[0].note, style="Muted.TLabel", justify="left")
+        self.preset_note.grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.wraps.append(self.preset_note)
+        self.cmb_preset.bind("<<ComboboxSelected>>", lambda _e: self.preset_note.configure(text=deps.MODEL_PRESETS[labels.index(self.preset_var.get())].note))
 
         def hint(*_a) -> None:
             warn = gui.big_model_hint(self.vars["modelo"].get())
@@ -537,7 +533,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.vars["modelo"].trace_add("write", hint)
         hint()
         if not self.models:
-            threading.Thread(target=self.load_models_or_start, daemon=True).start()
+            threading.Thread(target=self.load_models, daemon=True).start()
         threading.Thread(target=self.recommend_model, daemon=True).start()
 
         tools = ttk.Frame(self.form)
@@ -554,7 +550,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         cmb.bind("<<ComboboxSelected>>", self._preset_changed)
 
     def _model_note_text(self) -> str:
-        return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) (Ollama e LM Studio)."
+        return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) no Ollama."
 
     def _preset_now(self) -> str:
         saved = wl.load_config().get("ferramentas", "")
@@ -786,7 +782,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             tools = self.chosen_tools()
             cases = self.state.destino
             self.chat_proc = self.run_proc(
-                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0) if cfg.get("num_ctx_manual") else 0, backend=cfg.get("backend", "auto")), env=env  # sem escolha do usuário vale o padrão (131072)
+                gui.chat_command(self.state.iped, cases, sem_destrutivas=True, modelo=cfg["modelo"], ferramentas=tools, num_ctx=int(cfg.get("num_ctx") or 0) if cfg.get("num_ctx_manual") else 0), env=env  # sem escolha do usuário vale o padrão (131072)
             )
             self.tracker = progress.Tracker()
             self.say(f"Ferramentas da IA: {len(tools)} ligadas (~{tc.tokens(tools)} tokens de contexto).")
@@ -906,7 +902,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 pass
 
     def load_models(self) -> None:
-        models = gui.available_models()
+        models = gui.ollama_models()
 
         def apply() -> None:
             self.models = models
@@ -921,18 +917,12 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         self.root.after(0, apply)
 
-    def load_models_or_start(self) -> None:
-        """Lê os modelos; se não há nenhum e o LM Studio existe, liga o servidor dele sozinho e lê de novo."""
-        self.load_models()
-        if not gui.available_models() and wl.load_config().get("backend", "auto") != "ollama":
-            self.autostart_lmstudio()
-
-    def autostart_lmstudio(self) -> None:
-        from iped_mcp import backends as bk
-
-        if getattr(self, "_lms_busy", False) or not (bk.lms_exe() or bk.lmstudio_installed()):
+    def pull_preset(self, labels: list[str]) -> None:
+        """Baixa o modelo pronto escolhido (instala/abre o Ollama se preciso) e já o seleciona; se falhar, mostra o roteiro manual."""
+        if getattr(self, "_pulling", False):
             return
-        self._lms_busy = True
+        preset = deps.MODEL_PRESETS[labels.index(self.preset_var.get())]
+        self._pulling = True
 
         def note(text: str, warn: bool = False) -> None:
             def paint() -> None:
@@ -945,17 +935,64 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
             self.root.after(0, paint)
 
-        try:
-            note("Ligando o servidor do LM Studio e carregando o modelo… (pode levar alguns minutos na primeira vez)")
-            found = bk.ensure_lmstudio_server(lambda m: self.root.after(0, lambda m=m: self.say(m)))
-            self.load_models()
-            if found:
-                note(f"LM Studio pronto: {len(found)} modelo(s).")
-            else:
-                note("Não consegui ligar o LM Studio sozinho. " + bk.LMSTUDIO_HINT, warn=True)
-            self.refresh_status(self.vars["iped"].get())
-        finally:
-            self._lms_busy = False
+        def work() -> None:
+            try:
+                note(f"Preparando o Ollama e baixando {preset.tag} {preset.size}… o andamento aparece aqui e nos detalhes técnicos.")
+                if not deps.Env().ollama_exe():
+                    res = deps.run_plan(deps.Plan("ollama"), lambda m: self.root.after(0, lambda m=m: self.say(m)))
+                    if not res.ok:
+                        note("Não consegui instalar o Ollama sozinho. Siga o roteiro que abriu.", warn=True)
+                        self.root.after(0, lambda: self.show_manual_guide("ollama"))
+                        return
+                last = {"t": 0.0}
+
+                def frac(f: float | None) -> None:
+                    now = time.monotonic()
+                    if f is not None and now - last["t"] > 1.0:
+                        last["t"] = now
+                        note(f"Baixando {preset.tag}: {f * 100:.0f}%")
+
+                res = deps.run_plan(deps.Plan("pull", (preset.tag,)), lambda m: self.root.after(0, lambda m=m: self.say(m)), frac)
+                if res.ok:
+                    cfg = wl.load_config()
+                    cfg["modelo"] = preset.tag
+                    wl.save_config(cfg)
+                    self.root.after(0, lambda: self.vars["modelo"].set(preset.tag))
+                    self.load_models()
+                    note(f"{preset.tag} pronto e selecionado.")
+                    self.refresh_status(self.vars["iped"].get())
+                else:
+                    note(f"Não consegui baixar {preset.tag}. Siga o roteiro que abriu.", warn=True)
+                    kind = "model" if deps.Env().ollama_exe() else "ollama"
+                    self.root.after(0, lambda: self.show_manual_guide(kind, preset.tag))
+            finally:
+                self._pulling = False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_manual_guide(self, kind: str, model: str = "") -> None:
+        """Janela com o passo a passo manual (Ollama ou modelo), botão para abrir a página e para verificar de novo."""
+        import webbrowser
+
+        tk, ttk = self.tk, self.ttk
+        win = self.toplevel("Passo a passo manual", "700x460")
+        box = tk.Text(win, wrap="word", bg=P["surface"], fg=P["text"], relief="flat", font=self.f["body"], padx=16, pady=14, highlightthickness=0)
+        box.pack(fill="both", expand=True, padx=20, pady=(20, 8))
+        box.insert("1.0", deps.manual_guide(kind, model))
+        box.configure(state="disabled")
+        bar = ttk.Frame(win, padding=(20, 8, 20, 16))
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Fechar", style="Ghost.TButton", command=win.destroy).pack(side="right")
+
+        def recheck() -> None:
+            threading.Thread(target=lambda: (self.load_models(), self.refresh_status(self.vars["iped"].get())), daemon=True).start()
+            win.destroy()
+
+        ttk.Button(bar, text="Verificar de novo", style="Primary.TButton", command=recheck).pack(side="right", padx=(0, 8))
+        if kind == "ollama":
+            ttk.Button(bar, text="Abrir a página de download", command=lambda: webbrowser.open(deps.OLLAMA_DOWNLOAD_URL)).pack(side="left")
+        else:
+            ttk.Button(bar, text="Copiar o comando", command=lambda: (self.root.clipboard_clear(), self.root.clipboard_append(f"ollama pull {model or 'qwen3:8b'}"))).pack(side="left")
 
     def recommend_model(self) -> None:
         try:
@@ -979,7 +1016,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.root.after(0, show)
 
     def refresh_status(self, iped: str = "") -> None:
-        ollama = len(gui.available_models())
+        ollama = len(gui.ollama_models())
         webui = bool(wl.running_open_webui(3737) or wl.find_open_webui_command())
 
         def paint() -> None:
@@ -989,7 +1026,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 note.configure(text=text)
 
             chip("iped", "ok" if (Path(iped) / "iped.jar").is_file() else "idle", "pronto" if (Path(iped) / "iped.jar").is_file() else "a informar")
-            chip("ollama", "ok" if ollama else "warn", f"{ollama} modelo(s)" if ollama else "sem modelo (abra Ollama ou LM Studio)")
+            chip("ollama", "ok" if ollama else "warn", f"{ollama} modelo(s)" if ollama else "sem modelo (baixe um na etapa IA)")
             chip("webui", "ok" if webui else "warn", "encontrado" if webui else "ausente")
             self.env_checked = True
 
@@ -1228,6 +1265,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
             def work() -> None:
                 failed = []
+                manual = []
                 for dep, plan in plans:
                     say_line(f"=== {dep.name} ===")
                     state["frac"] = None
@@ -1239,8 +1277,13 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                         continue
                     reason = res.message or f"o instalador terminou, mas {dep.name} ainda não foi encontrado (talvez seja preciso fechar e abrir este programa)."
                     failed.append(f"{dep.name}: {reason}")
+                    if dep.key == "ollama":
+                        manual.append(("ollama", ""))
+                    elif dep.key == "model" and plan.kind == "pull":
+                        manual.append(("model", plan.command[0]))
                     say_line(reason)
                 state["failed"] = failed
+                state["manual"] = manual
                 state["busy"] = False
                 self.root.after(0, finished)
 
@@ -1269,6 +1312,10 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             scan()
             if failed:
                 self.messagebox.showwarning(APP_TITLE, "Alguns itens não foram instalados:\n\n" + "\n".join(failed) + f"\n\nO registro completo está em:\n{ins.LOG_PATH}", parent=win)
+                manual = state.get("manual") or []
+                if manual:  # Ollama primeiro: sem ele o modelo não baixa
+                    kind, model = sorted(manual, key=lambda m: m[0] != "ollama")[0]
+                    self.show_manual_guide(kind, model)
             else:
                 info.set("Concluído. Se algum item continuar ausente depois de instalar, feche e abra este programa para ele enxergar o novo PATH.")
 

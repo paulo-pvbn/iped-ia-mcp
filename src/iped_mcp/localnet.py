@@ -1,7 +1,7 @@
 """Acesso a serviços deste computador (127.0.0.1) sem passar pelo proxy do sistema.
 
 Em redes com proxy (HTTP_PROXY ou configuração do Windows) o `urlopen` comum mandaria até 127.0.0.1 para o proxy, que não
-enxerga este computador: o Ollama, o LM Studio e o Open WebUI pareceriam desligados.
+enxerga este computador: o Ollama e o Open WebUI pareceriam desligados.
 """
 
 from __future__ import annotations

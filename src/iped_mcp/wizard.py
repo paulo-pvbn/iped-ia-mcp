@@ -135,7 +135,7 @@ def validate(step_key: str, state: State) -> str:
         if any(a in {"-d", "-o", "-profile"} for a in args):
             return "Não repita -d, -o nem -profile nos argumentos extras: o assistente já cuida deles."
     elif step_key == "ia" and not state.modelo.strip():
-        return "Escolha um modelo (abra o Ollama ou ligue o servidor local do LM Studio se a lista estiver vazia)."
+        return "Escolha um modelo (abra o Ollama ou baixe um modelo se a lista estiver vazia)."
     return ""
 
 
@@ -253,13 +253,6 @@ def dependencies(iped_root: str, ollama_url: str = "http://127.0.0.1:11434", web
         out.append(Check("Ollama", "ok", f"{len(tags)} modelo(s) baixado(s)"))
     else:
         out.append(Check("Ollama", "warn", "Não respondeu ou sem modelos", "Abra o Ollama e baixe um modelo (ex.: ollama pull qwen3:8b)."))
-    from iped_mcp import backends as bk
-
-    lms = bk.lmstudio_models()
-    if lms:
-        out.append(Check("LM Studio", "ok", f"{len(lms)} modelo(s) no servidor local"))
-    elif bk.lmstudio_installed():
-        out.append(Check("LM Studio", "warn", "Instalado, servidor local desligado", bk.LMSTUDIO_HINT))
     out.append(Check("Open WebUI", "ok" if webui_found else "warn", "Encontrado" if webui_found else "Não encontrado",
                      "" if webui_found else "O assistente oferece instalar na hora de abrir o chat."))  # fmt: skip
     try:

@@ -23,7 +23,6 @@ import threading
 import time
 from pathlib import Path
 
-from iped_mcp import backends as bk
 from iped_mcp.localnet import open_local
 from iped_mcp.ollama_guard import OllamaGuard
 from iped_mcp.tools_catalog import DEFAULT, build_filter, normalize
@@ -327,7 +326,7 @@ def quiet_background_tasks(base: str, token: str) -> list[str]:
 
 def provision_open_webui(
     base_url: str, mcp_url: str, mcp_token: str, system_prompt: str, model: str = "", tools: object = None, num_ctx: int = 0,
-    ollama_url: str = "", lmstudio_url: str = "",
+    ollama_url: str = "",
 ) -> tuple[bool, str]:  # fmt: skip
     """Deixa o Open WebUI pronto: servidor MCP do IPED cadastrado e o modelo "Analista IPED" (prompt + ferramenta ligada).
 
@@ -345,15 +344,6 @@ def provision_open_webui(
             current = _api("GET", f"{base}/ollama/config", None, token) or {}
             _api("POST", f"{base}/ollama/config/update",
                  {"ENABLE_OLLAMA_API": True, "OLLAMA_BASE_URLS": [ollama_url], "OLLAMA_API_CONFIGS": {"0": (current.get("OLLAMA_API_CONFIGS") or {}).get("0", {})}}, token)  # fmt: skip
-        if lmstudio_url:  # IA do LM Studio: conexão compatível com OpenAI (só 127.0.0.1); o Ollama sai da frente para não aparecer vazio
-            current = _api("GET", f"{base}/openai/config", None, token) or {}
-            _api("POST", f"{base}/openai/config/update",
-                 {"ENABLE_OPENAI_API": True, "OPENAI_API_BASE_URLS": [lmstudio_url.rstrip("/") + "/v1"], "OPENAI_API_KEYS": ["lm-studio"],
-                  "OPENAI_API_CONFIGS": {"0": (current.get("OPENAI_API_CONFIGS") or {}).get("0", {})}}, token)  # fmt: skip
-            try:
-                _api("POST", f"{base}/ollama/config/update", {"ENABLE_OLLAMA_API": False, "OLLAMA_BASE_URLS": [], "OLLAMA_API_CONFIGS": {}}, token)
-            except Exception:  # noqa: BLE001, S110  (opcional)
-                pass
         try:
             off = quiet_background_tasks(base, token)
             if off:
@@ -374,22 +364,13 @@ def provision_open_webui(
         items = listed.get("data", []) if isinstance(listed, dict) else (listed or [])
         bases = [m for m in items if not m.get("preset") and m.get("id") != PRESET_ID]
         chosen = next((m for m in bases if model and m.get("id") == model), None)
-        if lmstudio_url:
-            bases = [m for m in bases if m.get("owned_by") != "ollama"] or bases
-            chosen = chosen or (bases[0] if bases else None)
-            if chosen is None and model:  # o Open WebUI ainda não listou: usa o nome que o próprio LM Studio informou
-                chosen = {"id": model}
-        else:
-            chosen = chosen or next((m for m in bases if m.get("owned_by") == "ollama"), None) or (bases[0] if bases else None)
+        chosen = chosen or next((m for m in bases if m.get("owned_by") == "ollama"), None) or (bases[0] if bases else None)
         if chosen is None:
-            return False, ("o Open WebUI não lista nenhum modelo do LM Studio (o servidor local está ligado e há um modelo carregado?)" if lmstudio_url
-                           else "o Open WebUI não lista nenhum modelo (o Ollama está aberto e tem modelo baixado?)")  # fmt: skip
+            return False, "o Open WebUI não lista nenhum modelo (o Ollama está aberto e tem modelo baixado?)"
         params = {
             "system": system_prompt, "function_calling": "native", "num_ctx": max(4096, int(num_ctx or NUM_CTX)), "keep_alive": "30m",
             "temperature": TEMPERATURE, "top_p": TOP_P,
         }  # fmt: skip
-        if lmstudio_url:  # no LM Studio a janela de contexto é definida ao carregar o modelo; num_ctx/keep_alive são do Ollama
-            params = {k: v for k, v in params.items() if k not in ("num_ctx", "keep_alive")}
         form = {
             "id": PRESET_ID,
             "base_model_id": chosen["id"],
@@ -777,24 +758,9 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
 
         ctx = int(getattr(args, "num_ctx", 0) or NUM_CTX)
         STATS_PATH.unlink(missing_ok=True)  # números de uma execução anterior não valem
-        lms_models = bk.lmstudio_models()
-        olla_models = None
-        try:
-            olla_models = [m["name"] for m in (_api("GET", args.ollama_url.rstrip("/") + "/api/tags", None, None, 4) or {}).get("models", [])]
-        except Exception:  # noqa: BLE001
-            pass
-        if getattr(args, "backend", "auto") == "lmstudio" or (not olla_models and not lms_models):
-            lms_models = bk.ensure_lmstudio_server(lambda m: say(m)) or lms_models  # só liga se o LM Studio existir; sem ele não muda nada
-        backend = bk.choose_backend(getattr(args, "backend", "auto"), getattr(args, "modelo", "") or "", olla_models, lms_models)
-        guard = None
-        if backend == "lmstudio":
-            say(f"   IA: LM Studio em {bk.active_lmstudio_url()} ({len(lms_models or [])} modelo(s)). Sem a guarda de contexto: defina a janela ao carregar o modelo no LM Studio.")
-            if not lms_models:
-                say("   AVISO: o servidor do LM Studio não respondeu ou não tem modelo. " + bk.LMSTUDIO_HINT, err=True)
-        else:
-            guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}"), stats_path=STATS_PATH).start()
-            guards.append(guard)
-            say(f"   Guarda de contexto no ar em {guard.url} (Ollama em {args.ollama_url}).")
+        guard = OllamaGuard(args.ollama_url, port=free_port(GUARD_PORT), default_ctx=ctx, log=lambda m: say(f"   [contexto] {m}"), stats_path=STATS_PATH).start()
+        guards.append(guard)
+        say(f"   Guarda de contexto no ar em {guard.url} (Ollama em {args.ollama_url}).")
         webui_url = f"http://127.0.0.1:{args.webui_port}"
         prompt_text, prompt_file = load_prompt()
         setup = {
@@ -804,11 +770,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             "model": getattr(args, "modelo", "") or "",
             "tools": normalize(getattr(args, "ferramentas", "") or "") or list(DEFAULT),
             "num_ctx": int(getattr(args, "num_ctx", 0) or 0),
-            "ollama_url": guard.url if guard else "",
-            "lmstudio_url": bk.active_lmstudio_url() if backend == "lmstudio" else "",
+            "ollama_url": guard.url,
         }
-        if backend == "lmstudio" and not setup["model"] and lms_models:
-            setup["model"] = lms_models[0]
         if not args.no_webui:
             running = running_open_webui(args.webui_port)
             webui_cmd = None if running else find_open_webui_command()
@@ -820,22 +783,13 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 say(f"[3/3] Subindo o Open WebUI ({' '.join(webui_cmd)}); a primeira vez demora…")
                 OPENWEBUI_HOME.mkdir(parents=True, exist_ok=True)
                 wenv = dict(os.environ, DATA_DIR=str(OPENWEBUI_HOME / "data-local"), WEBUI_AUTH="False")  # sem login: só 127.0.0.1
-                if guard:
-                    wenv["OLLAMA_BASE_URL"] = guard.url
-                else:
-                    wenv.update(ENABLE_OLLAMA_API="False", ENABLE_OPENAI_API="True", OPENAI_API_BASE_URL=bk.active_lmstudio_url() + "/v1", OPENAI_API_KEY="lm-studio")
+                wenv["OLLAMA_BASE_URL"] = guard.url
                 # Busca em documentos (RAG) do Open WebUI usaria um modelo local baixado do HuggingFace; aponta para o Ollama
                 # (só vale numa instalação nova do Open WebUI: configurações já gravadas no banco dele prevalecem).
-                if guard:
-                    wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
-                    wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
-                else:  # sem isso o Open WebUI tenta baixar um modelo de embeddings da internet ao subir e pode ficar minutos parado
-                    wenv.setdefault("RAG_EMBEDDING_ENGINE", "openai")
-                    wenv.setdefault("RAG_OPENAI_API_BASE_URL", bk.active_lmstudio_url() + "/v1")
-                    wenv.setdefault("RAG_OPENAI_API_KEY", "lm-studio")
-                    wenv.setdefault("RAG_EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5")
+                wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
+                wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
-                # Serviços deste computador nunca passam pelo proxy do sistema (o Open WebUI usa o proxy do ambiente nas chamadas ao LM Studio/Ollama).
+                # Serviços deste computador nunca passam pelo proxy do sistema (o Open WebUI usa o proxy do ambiente nas chamadas ao Ollama).
                 local = "127.0.0.1,localhost,::1"
                 for var in ("NO_PROXY", "no_proxy"):
                     wenv[var] = f"{local},{wenv[var]}" if wenv.get(var) else local
