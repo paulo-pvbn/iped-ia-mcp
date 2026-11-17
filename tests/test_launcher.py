@@ -426,3 +426,12 @@ def test_local_no_proxy_is_added_to_child_env():
     env = launcher.with_local_no_proxy({"NO_PROXY": "intra.local"})
     assert env["NO_PROXY"].startswith("127.0.0.1,localhost,::1") and "intra.local" in env["NO_PROXY"]
     assert launcher.with_local_no_proxy({})["no_proxy"] == "127.0.0.1,localhost,::1"
+
+
+def test_with_case_context_appends_and_limits():
+    from iped_mcp import webui_launcher as wl
+
+    assert wl.with_case_context("base", "") == "base"
+    out = wl.with_case_context("base", "  Fulano usa o apelido Zé  ")
+    assert out.startswith("base") and "Fulano usa o apelido Zé" in out and "not evidence" in out
+    assert len(wl.with_case_context("b", "x" * 10000)) < 10000 - 4000 + 800

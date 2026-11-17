@@ -549,6 +549,27 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self._tools_summary()
         cmb.bind("<<ComboboxSelected>>", self._preset_changed)
 
+        ctx = ttk.Frame(self.form)
+        ctx.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        ctx.columnconfigure(0, weight=1)
+        ttk.Label(ctx, text="Contexto do caso (opcional)", font=self.f["bold"]).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(ctx, text="Quem são os envolvidos, o que se investiga, apelidos, datas importantes. A IA lê isto antes de cada conversa. Fica só neste computador.", style="Muted.TLabel", justify="left").grid(row=1, column=0, sticky="w", pady=(0, 6))
+        self.txt_contexto = self.tk.Text(ctx, height=5, wrap="word", font=self.f["body"] if "body" in self.f else None)
+        self.txt_contexto.grid(row=2, column=0, sticky="ew")
+        self.txt_contexto.insert("1.0", wl.load_config().get("contexto_caso", ""))
+
+        def save_context(_e=None) -> None:
+            cfg = wl.load_config()
+            text = self.txt_contexto.get("1.0", "end").strip()
+            if text:
+                cfg["contexto_caso"] = text[: wl.CONTEXT_MAX_CHARS]
+            else:
+                cfg.pop("contexto_caso", None)
+            wl.save_config(cfg)
+
+        self.txt_contexto.bind("<FocusOut>", save_context)
+        self.txt_contexto.bind("<KeyRelease>", save_context)
+
     def _model_note_text(self) -> str:
         return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) no Ollama."
 

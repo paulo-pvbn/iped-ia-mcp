@@ -592,12 +592,30 @@ def install_open_webui(package: str = "open-webui") -> int:
     return 0
 
 
+CONTEXT_MAX_CHARS = 4000
+
+
+def with_case_context(prompt: str, context: str) -> str:
+    """Acrescenta ao prompt o contexto do caso escrito pelo usuário (informação de fundo, nunca instrução sobre o material)."""
+    context = (context or "").strip()[:CONTEXT_MAX_CHARS]
+    if not context:
+        return prompt
+    return (
+        prompt.rstrip()
+        + "\n\n## Case context (written by the examiner)\n"
+        + "Background the examiner gave you about this case. Use it to understand names, nicknames, roles and the goal of the "
+        + "investigation, and to choose what to search. It is not evidence: confirm every fact in the material before stating it.\n\n"
+        + context
+        + "\n"
+    )
+
+
 def load_prompt() -> tuple[str, Path | None]:
-    """Instruções do modelo: o `prompt.md` do próprio usuário (na pasta de dados do programa) ou o padrão do pacote."""
+    """Instruções do modelo: o `prompt.md` do próprio usuário (na pasta de dados do programa) ou o padrão do pacote, mais o contexto do caso."""
     for candidate in (CONFIG_PATH.parent / "prompt.md", ROOT / "prompts" / "analista.md"):
         try:
             if candidate.is_file():
-                return candidate.read_text(encoding="utf-8"), candidate
+                return with_case_context(candidate.read_text(encoding="utf-8"), load_config().get("contexto_caso", "")), candidate
         except OSError:
             continue
     return "", None
