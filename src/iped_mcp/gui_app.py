@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from iped_mcp import deps, gui, progress, sysmon, ui_theme, widgets
+from iped_mcp import deps, gui, netcheck, progress, sysmon, ui_theme, widgets
 from iped_mcp import installers as ins
 from iped_mcp import tuning
 from iped_mcp import hardware as hw
@@ -1272,6 +1272,17 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             text="Verde: encontrado. Amarelo: opcional ou ausente. Vermelho: obrigatório e ausente. Baixar instaladores precisa de internet; "
             "o processamento dos casos e da IA continua neste computador. Os comandos aparecem nos detalhes técnicos antes de rodar.",
         ).pack(anchor="w", padx=24)
+        net = tk.StringVar(value="Internet: testando o acesso aos endereços de instalação…")
+        ttk.Label(win, textvariable=net, style="Warn.TLabel", wraplength=840, justify="left").pack(anchor="w", padx=24, pady=(6, 0))
+        ttk.Label(win, style="Muted.TLabel", wraplength=840, justify="left",
+                  text="Na primeira vez, instalar Ollama, modelo, Java, pacotes Python e Open WebUI baixa arquivos da internet (alguns GB). "
+                       "Depois de instalado, tudo roda neste computador, sem internet.").pack(anchor="w", padx=24, pady=(2, 0))
+
+        def net_test() -> None:
+            res = netcheck.check_all()
+            self.root.after(0, lambda: win.winfo_exists() and net.set(netcheck.summary(res)))
+
+        threading.Thread(target=net_test, daemon=True).start()
         foot = ttk.Frame(win, padding=(24, 10))
         foot.pack(side="bottom", fill="x")
         mid = ttk.Frame(win)
