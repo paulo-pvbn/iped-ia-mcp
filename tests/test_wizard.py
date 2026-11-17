@@ -100,3 +100,20 @@ def test_dependencies_report(tmp_path, monkeypatch) -> None:
     assert "8 GB" in got["Placa de vídeo"].detail
     empty = {c.name: c for c in wz.dependencies("")}
     assert empty["IPED"].status == "warn" and empty["Open WebUI"].hint
+
+
+
+def test_case_folder_protection(tmp_path):
+    from iped_mcp import wizard as wz
+
+    case = tmp_path / "caso1"
+    (case / "iped" / "data").mkdir(parents=True)
+    inner = case / "iped" / "data"
+    assert wz.no_case_message(case) == ""
+    assert wz.no_case_message(case / "iped") == ""  # a pasta 'iped' vale: o caso é a que a contém
+    assert str(case) in wz.no_case_message(inner)  # pasta de dentro do caso: aponta a certa
+    other = tmp_path / "vazia"
+    other.mkdir()
+    assert "Não encontrei um caso" in wz.no_case_message(other)
+    assert wz.no_case_message(tmp_path / "nao_existe") == "A pasta não existe."
+    assert wz.case_summary(case) == "✓  Caso encontrado: caso1"

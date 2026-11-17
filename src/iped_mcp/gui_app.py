@@ -379,7 +379,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             def update(*_a) -> None:
                 self.collect()
                 ok = live()
-                note.configure(text=ok if ok else hint, style="Ok.TLabel" if ok else "Muted.TLabel")
+                bad = ok.startswith("✗")
+                note.configure(text=ok if ok else hint, style="Warn.TLabel" if bad else ("Ok.TLabel" if ok else "Muted.TLabel"))
 
             var.trace_add("write", update)
             update()
@@ -442,8 +443,17 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.field(
             self.form, title, self.vars["destino"], hint="Escolha a pasta.",
             browse=[("Procurar…", lambda: self.ask_dir(self.vars["destino"], title))],
-            live=lambda: "✓  Pasta válida" if self.vars["destino"].get().strip() and not wz.validate("destino", self.state) else "",
+            live=lambda: self._destino_live(),
         )  # fmt: skip
+
+    def _destino_live(self) -> str:
+        text = self.vars["destino"].get().strip()
+        if not text:
+            return ""
+        err = wz.validate("destino", self.state)
+        if self.state.task in (wz.CHAT, wz.MULTI):
+            return wz.case_summary(Path(text)) if not err else "✗  " + err
+        return "" if err else "✓  Pasta válida"
 
     def step_proc(self) -> None:
         ttk = self.ttk

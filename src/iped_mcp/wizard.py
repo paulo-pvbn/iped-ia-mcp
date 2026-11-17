@@ -126,6 +126,8 @@ def validate(step_key: str, state: State) -> str:
         elif state.task == ABRIR:
             if gui.find_case_app(Path(state.destino)) is None:
                 return "Não achei o IPED-SearchApp nessa pasta. Escolha a pasta de saída (-o) do caso indexado."
+        elif state.task in (CHAT, MULTI):
+            return no_case_message(Path(state.destino))
         elif not Path(state.destino).is_dir():
             return "A pasta não existe."
     elif step_key == "proc":
@@ -135,6 +137,33 @@ def validate(step_key: str, state: State) -> str:
     elif step_key == "ia" and not state.modelo.strip():
         return "Escolha um modelo (abra o Ollama ou ligue o servidor local do LM Studio se a lista estiver vazia)."
     return ""
+
+
+def no_case_message(folder: Path) -> str:
+    """"" se a pasta é (ou contém) um caso do IPED; senão, explica o erro e, se der, aponta a pasta certa."""
+    from iped_mcp import webui_launcher as wl
+
+    if not folder.is_dir():
+        return "A pasta não existe."
+    if wl.find_cases(folder):
+        return ""
+    for parent in list(folder.parents)[:4]:  # escolheu uma pasta de dentro do caso (data, index, htm…)?
+        if wl.looks_like_case(parent):
+            return f"Esta pasta fica dentro de um caso do IPED. Escolha a pasta de saída do caso: {parent}"
+    return (
+        "Não encontrei um caso do IPED aí. Escolha a pasta de saída do caso: a que contém a subpasta 'iped' "
+        "(ou o IPED-SearchApp). Para vários casos, escolha a pasta que os reúne."
+    )
+
+
+def case_summary(folder: Path) -> str:
+    """Texto curto do que foi encontrado, para mostrar enquanto o usuário escolhe a pasta."""
+    from iped_mcp import webui_launcher as wl
+
+    found = wl.find_cases(folder) if folder.is_dir() else []
+    if not found:
+        return ""
+    return f"✓  Caso encontrado: {found[0].name}" if len(found) == 1 else f"✓  {len(found)} casos encontrados: {', '.join(c.name for c in found[:4])}{'…' if len(found) > 4 else ''}"
 
 
 def _same_or_inside(path: Path, parent: Path) -> bool:
