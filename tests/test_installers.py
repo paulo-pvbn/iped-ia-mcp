@@ -121,3 +121,31 @@ def test_jre_extracts_zip_into_target(tmp_path, monkeypatch):
 def test_winget_command_uses_winget_source_and_agreements():
     cmd = ins.winget_cmd("Ollama.Ollama")
     assert cmd[:2] == ["winget", "install"] and "--source" in cmd and "winget" in cmd and "--accept-package-agreements" in cmd and cmd[-1] == "Ollama.Ollama"
+
+
+def test_download_falls_back_to_windows_proxy_auth(tmp_path, monkeypatch):
+    import urllib.request
+
+    from iped_mcp import installers as ins
+
+    def boom(*a, **k):
+        raise OSError("Tunnel connection failed: 407 Proxy Authentication Required")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    ops = ins.Ops(lambda m: None)
+    monkeypatch.setattr(ops, "is_windows", lambda: True)
+    seen = []
+
+    def fake_stream(cmd, elevate=False):
+        seen.append(cmd)
+        dest = tmp_path / "x"
+        import re
+
+        target = re.search(r"'([^']*OllamaSetup\.exe)'\)?$", cmd[-1]) or re.search(r"-Destination '([^']*)'", cmd[-1]) or re.search(r"DownloadFile\('[^']*','([^']*)'\)", cmd[-1])
+        Path(target.group(1)).write_bytes(b"0" * 2_000_000)
+        return 0
+
+    monkeypatch.setattr(ops, "stream", fake_stream)
+    got = ops.download("https://ollama.com/download/OllamaSetup.exe", "OllamaSetup.exe", lambda f: None)
+    assert got and got.stat().st_size == 2_000_000
+    assert "GetSystemWebProxy" in seen[0][-1] and "DefaultCredentials" in seen[0][-1]

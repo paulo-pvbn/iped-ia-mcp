@@ -41,6 +41,26 @@ class Result:
     log: list[str] = field(default_factory=list)
 
 
+def windows_download_commands(url: str, dest: Path) -> list[list[str]]:
+    """Formas de baixar pelo Windows usando o proxy do sistema com as credenciais do usuário logado."""
+    u, d = url.replace("'", "''"), str(dest).replace("'", "''")
+    web = (f"$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $w=New-Object Net.WebClient; "
+           f"$w.Proxy=[Net.WebRequest]::GetSystemWebProxy(); $w.Proxy.Credentials=[Net.CredentialCache]::DefaultCredentials; $w.DownloadFile('{u}','{d}')")  # fmt: skip
+    bits = f"Start-BitsTransfer -Source '{u}' -Destination '{d}'"
+    return [["powershell", "-NoProfile", "-NonInteractive", "-Command", web], ["powershell", "-NoProfile", "-NonInteractive", "-Command", bits]]
+
+
+def find_ollama_elsewhere() -> str | None:
+    """Ollama instalado por outro usuário do Windows (ex.: Administrator) ou em Arquivos de Programas."""
+    import glob
+
+    pats = [r"C:\\Users\\*\\AppData\\Local\\Programs\\Ollama\\ollama.exe", r"C:\\Program Files\\Ollama\\ollama.exe"]
+    for pat in pats:
+        for hit in glob.glob(pat):
+            return hit
+    return None
+
+
 def winget_cmd(package: str) -> list[str]:
     return [*WINGET_COMMON, package]
 
@@ -100,8 +120,20 @@ class Ops:
                 return dest
             except Exception as exc:  # noqa: BLE001
                 self.say(f"Falha no download (tentativa {attempt}/3): {exc}")
+                if "407" in str(exc):
+                    break  # proxy exige login: repetir do mesmo jeito não adianta
                 time.sleep(2 * attempt)
+        if self.is_windows():  # proxy de rede corporativa com login do Windows (NTLM/Kerberos): o Python sozinho não autentica, o PowerShell e o BITS sim
+            self.say("Tentando de novo pelo Windows (usa o proxy do sistema com o seu login)…")
+            for cmd in windows_download_commands(url, dest):
+                dest.unlink(missing_ok=True)
+                if self.stream(cmd) == 0 and dest.is_file() and dest.stat().st_size > 1_000_000:
+                    self.say(f"Baixado: {dest.stat().st_size / 1e6:.0f} MB")
+                    return dest
         return None
+
+    def is_windows(self) -> bool:
+        return os.name == "nt"
 
     def extract_zip(self, archive: Path, target: Path) -> bool:
         try:
@@ -123,7 +155,9 @@ class Ops:
             return found
         local = os.environ.get("LOCALAPPDATA")
         exe = Path(local) / "Programs" / "Ollama" / "ollama.exe" if local else None
-        return str(exe) if exe and exe.is_file() else None
+        if exe and exe.is_file():
+            return str(exe)
+        return find_ollama_elsewhere()
 
     def ollama_up(self) -> bool:
         try:
@@ -192,7 +226,7 @@ def ensure_ollama(ops: Ops, progress: Callable[[float | None], None]) -> Result:
         if setup:
             ops.stream([str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
     if not ops.ollama_exe():
-        return Result(False, 1, "Não consegui instalar o Ollama. Baixe e instale manualmente em https://ollama.com/download e use 'Verificar de novo'.")
+        return Result(False, 1, "Não consegui instalar o Ollama. Baixe e instale manualmente em https://ollama.com/download/windows e use 'Verificar de novo'.")
     return ensure_ollama_running(ops)
 
 

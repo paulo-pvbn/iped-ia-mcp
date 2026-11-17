@@ -120,7 +120,7 @@ class Env:
         local = os.environ.get("LOCALAPPDATA")
         if local and (Path(local) / "Programs" / "Ollama" / "ollama.exe").is_file():
             return str(Path(local) / "Programs" / "Ollama" / "ollama.exe")
-        return None
+        return ins.find_ollama_elsewhere()
 
     def python(self) -> Path | None:
         found = wl.python_candidates()
@@ -194,8 +194,9 @@ def manual_guide(kind: str, model: str = "") -> str:
             "3. Dê dois cliques no OllamaSetup.exe e clique em \"Install\" (não precisa mudar nada).\n"
             "4. Ao terminar, abra o Ollama pelo menu Iniciar. Um ícone de lhama aparece perto do relógio.\n"
             "5. Volte aqui e clique em \"Verificar de novo\".\n\n"
-            "Se o Windows ou o antivírus bloquear o instalador, libere-o e tente de novo; "
-            "em computador de rede, peça ao suporte para liberar ollama.com."
+            "Se o Windows ou o antivírus bloquear o instalador, libere-o e tente de novo.\n"
+            "Em rede com proxy que pede login (erro 407), o navegador costuma funcionar porque você já está autenticado nele: baixe por ele. "
+            "Se o próprio navegador bloquear, peça ao suporte para liberar ollama.com."
         )
     tag = model or "qwen3:8b"
     return (
@@ -204,7 +205,8 @@ def manual_guide(kind: str, model: str = "") -> str:
         "2. Abra o \"Prompt de Comando\" (tecla Windows, digite cmd e Enter).\n"
         f"3. Digite: ollama pull {tag}   e aperte Enter. Pode levar de alguns minutos a uma hora; se a internet cair, repita o comando que ele continua de onde parou.\n"
         "4. Quando aparecer \"success\", volte aqui e clique em \"Verificar de novo\".\n\n"
-        "Se der erro de conexão, confira a internet ou o proxy da rede."
+        "Se der erro de conexão ou 407 (proxy com login), o Ollama não consegue baixar sozinho nessa rede: peça ao suporte para liberar registry.ollama.ai "
+        "e ollama.com, ou baixe o modelo em outra rede/computador e copie a pasta .ollama\\models (em C:\\Users\\<você>) para este."
     )
 
 
