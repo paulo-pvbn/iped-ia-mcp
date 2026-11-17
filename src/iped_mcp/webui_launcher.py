@@ -435,8 +435,11 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None, proc: subp
                 return
             if time.monotonic() - last > 20:
                 last = time.monotonic()
-                say(f"   Open WebUI ainda iniciando ({last - start:.0f}s); não está travado.")
+                lines_ = [ln.strip() for ln in log_tail(OPENWEBUI_HOME / "open-webui.log", 3).splitlines() if ln.strip()]
+                say(f"   Open WebUI ainda iniciando ({last - start:.0f}s). Último registro dele: {lines_[-1][:140] if lines_ else '(vazio)'}")
             time.sleep(2)
+        if port is not None:
+            say("Open WebUI respondeu.")
         if setup:
             ok, msg = False, ""
             for attempt in range(4):  # logo após subir o banco ainda pode estar inicializando
@@ -455,6 +458,7 @@ def finish_open_webui(url: str, port: int | None, setup: dict | None, proc: subp
             webbrowser.open(url)
         except Exception:  # noqa: BLE001, S110
             pass
+        say("Chat pronto no navegador.")
 
     threading.Thread(target=work, daemon=True).start()
 
@@ -823,6 +827,11 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
                 if guard:
                     wenv.setdefault("RAG_EMBEDDING_ENGINE", "ollama")
                     wenv.setdefault("RAG_OLLAMA_BASE_URL", args.ollama_url)
+                else:  # sem isso o Open WebUI tenta baixar um modelo de embeddings da internet ao subir e pode ficar minutos parado
+                    wenv.setdefault("RAG_EMBEDDING_ENGINE", "openai")
+                    wenv.setdefault("RAG_OPENAI_API_BASE_URL", bk.active_lmstudio_url() + "/v1")
+                    wenv.setdefault("RAG_OPENAI_API_KEY", "lm-studio")
+                    wenv.setdefault("RAG_EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5")
                 wenv.update(PYTHONUTF8="1", ANONYMIZED_TELEMETRY="false", SCARF_NO_ANALYTICS="true", DO_NOT_TRACK="true")
                 log_file = open(OPENWEBUI_HOME / "open-webui.log", "ab")  # noqa: SIM115  (saída ruidosa vai para arquivo)
                 say(f"   (saída do Open WebUI em {OPENWEBUI_HOME / 'open-webui.log'})")

@@ -20,7 +20,8 @@ _MARKS = (
     ("MCP no ar", 2),
     ("Guarda de contexto no ar", 3),
     ("[3/3]", 3),
-    ("=== PRONTO ===", 5),
+    ("Open WebUI respondeu", 4),
+    ("Chat pronto no navegador", 5),
 )
 
 

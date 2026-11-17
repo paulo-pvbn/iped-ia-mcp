@@ -12,7 +12,9 @@ def test_tracker_follows_launcher_lines_and_never_goes_back():
         ("   MCP no ar em 3s.", 2),
         ("   Guarda de contexto no ar em http://127.0.0.1:11435", 3),
         ("[3/3] Subindo o Open WebUI", 3),
-        ("=== PRONTO ===", 5),
+        ("=== PRONTO ===", 3),  # o resumo sai antes de o Open WebUI responder
+        ("Open WebUI respondeu.", 4),
+        ("Chat pronto no navegador.", 5),
     ):
         assert t.feed(line) == done
     assert t.feed("[1/3] de novo") == 5
