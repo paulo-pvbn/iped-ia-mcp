@@ -391,3 +391,32 @@ def test_provision_removes_stale_local_openai_connection():
     assert ok, msg
     upd = dict(seen)["/openai/config/update"]
     assert upd["ENABLE_OPENAI_API"] is False and upd["OPENAI_API_BASE_URLS"] == []
+
+
+def test_webapi_sources_reports_empty_and_found():
+    import http.server
+    import json as _json
+    import threading
+
+    payload = {"data": []}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = _json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    items, raw = launcher.webapi_sources(url, tries=2, wait=0)
+    assert items == [] and "data" in raw
+    payload["data"] = [{"id": "caso"}]
+    items, _raw = launcher.webapi_sources(url, tries=1, wait=0)
+    srv.shutdown()
+    assert items == [{"id": "caso"}]

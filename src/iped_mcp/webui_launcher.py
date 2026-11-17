@@ -89,6 +89,23 @@ def sources_from_cases_dir(cases_dir: Path) -> list[dict[str, str]]:
     return out
 
 
+def webapi_sources(url: str, tries: int = 5, wait: float = 3.0) -> tuple[list, str]:
+    """Casos que a Web API do IPED diz ter (GET /sources/), esperando um pouco. Devolve (lista, resposta crua resumida)."""
+    raw = ""
+    for n in range(tries):
+        try:
+            data = _api("GET", url.rstrip("/") + "/sources/", None, None, 8)
+            raw = json.dumps(data, ensure_ascii=False)[:300]
+            items = data.get("data") if isinstance(data, dict) else data
+            if items:
+                return list(items), raw
+        except Exception as exc:  # noqa: BLE001
+            raw = f"erro: {exc}"
+        if n < tries - 1:
+            time.sleep(wait)
+    return [], raw
+
+
 def free_port(preferred: int, host: str = "127.0.0.1", tries: int = 50) -> int:
     """Primeira porta livre a partir de `preferred` (sobra de execução anterior ocupa a porta padrão)."""
     for port in range(preferred, preferred + tries):
@@ -732,6 +749,13 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
             if waited % 5 == 0:
                 say(f"   ...aguardando o IPED abrir o caso ({waited}s)")
         say("   Web API(s) no ar: " + ", ".join(f"{sid} -> {url}" for sid, url in endpoints.items()))
+        for sid, url in endpoints.items():
+            found_src, raw = webapi_sources(url)
+            if found_src:
+                say(f"   Web API '{sid}': {len(found_src)} caso(s) registrado(s).")
+            else:
+                say(f"   AVISO: a Web API '{sid}' está no ar, mas SEM nenhum caso registrado (resposta: {raw}). O chat vai responder que não há dados. "
+                    "Confira a pasta do caso escolhida e as mensagens acima do IPED.", err=True)
 
         token = "" if args.no_token else secrets.token_urlsafe(24)
         wanted = args.mcp_port
