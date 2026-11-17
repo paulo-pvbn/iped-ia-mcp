@@ -498,7 +498,12 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             cfg["backend"] = next((k for k, v in names.items() if v == self.backend_var.get()), "auto")
             wl.save_config(cfg)
 
-        src.bind("<<ComboboxSelected>>", save_backend)
+        def backend_changed(*_a) -> None:
+            save_backend()
+            if wl.load_config().get("backend", "auto") != "ollama" and not self.models:
+                threading.Thread(target=self.autostart_lmstudio, daemon=True).start()
+
+        src.bind("<<ComboboxSelected>>", backend_changed)
         self.cmb_modelo = ttk.Combobox(box, textvariable=self.vars["modelo"], values=self.models)
         self.cmb_modelo.grid(row=1, column=0, sticky="ew")
         ttk.Button(box, text="Hardware…", command=self.show_hardware).grid(row=1, column=1, padx=(8, 0))
@@ -516,7 +521,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.vars["modelo"].trace_add("write", hint)
         hint()
         if not self.models:
-            threading.Thread(target=self.load_models, daemon=True).start()
+            threading.Thread(target=self.load_models_or_start, daemon=True).start()
         threading.Thread(target=self.recommend_model, daemon=True).start()
 
         tools = ttk.Frame(self.form)
@@ -899,6 +904,42 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 self.vars["modelo"].set(models[0])
 
         self.root.after(0, apply)
+
+    def load_models_or_start(self) -> None:
+        """Lê os modelos; se não há nenhum e o LM Studio existe, liga o servidor dele sozinho e lê de novo."""
+        self.load_models()
+        if not gui.available_models() and wl.load_config().get("backend", "auto") != "ollama":
+            self.autostart_lmstudio()
+
+    def autostart_lmstudio(self) -> None:
+        from iped_mcp import backends as bk
+
+        if getattr(self, "_lms_busy", False) or not (bk.lms_exe() or bk.lmstudio_installed()):
+            return
+        self._lms_busy = True
+
+        def note(text: str, warn: bool = False) -> None:
+            def paint() -> None:
+                label = getattr(self, "model_note", None)
+                try:
+                    if label is not None and label.winfo_exists():
+                        label.configure(text=text, style="Warn.TLabel" if warn else "Muted.TLabel")
+                except Exception:  # noqa: BLE001
+                    pass
+
+            self.root.after(0, paint)
+
+        try:
+            note("Ligando o servidor do LM Studio e carregando o modelo… (pode levar alguns minutos na primeira vez)")
+            found = bk.ensure_lmstudio_server(lambda m: self.root.after(0, lambda m=m: self.say(m)))
+            self.load_models()
+            if found:
+                note(f"LM Studio pronto: {len(found)} modelo(s).")
+            else:
+                note("Não consegui ligar o LM Studio sozinho. " + bk.LMSTUDIO_HINT, warn=True)
+            self.refresh_status(self.vars["iped"].get())
+        finally:
+            self._lms_busy = False
 
     def recommend_model(self) -> None:
         try:
