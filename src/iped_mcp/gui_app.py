@@ -868,7 +868,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
     def install_webui(self, then=None) -> None:
         self.run_state = ("running", "Instalando o Open WebUI: pode levar vários minutos…")
         self._paint_run()
-        proc = self.run_proc(wl.self_command("instalar-webui"), env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"))
+        proc = self.run_proc(wl.self_command("instalar-webui"), env=ins.proxy_env(dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")))
 
         def wait() -> None:
             code = proc.wait()
@@ -879,6 +879,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 self._paint_run()
                 if code == 0 and then:
                     then()
+                elif code != 0:
+                    self.offer_proxy_retry(lambda: self.install_webui(then))
 
             self.root.after(0, done)
 
@@ -886,6 +888,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
     # ------------------------------------------------------------------------------------------ dados
     def say(self, text: str) -> None:
+        ins.note_407(text)
         self.lines.put(text)
 
     def drain(self) -> None:
@@ -1002,6 +1005,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                 stage.set("Não consegui concluir. Siga o passo a passo manual.")
                 detail.set(state["line"])
                 win.destroy()
+                if kind == "ollama" and self.offer_proxy_retry(lambda: self.pull_model(tag, size, then)):
+                    return
                 self.show_manual_guide(kind, tag)
 
         def work() -> None:
@@ -1031,6 +1036,50 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
 
         threading.Thread(target=work, daemon=True).start()
         poll()
+
+    def ask_proxy_login(self, parent=None) -> bool:
+        """Janela de usuário e senha do proxy. Ficam só na memória (perdidos ao fechar o programa). Devolve True se o usuário informou."""
+        tk, ttk = self.tk, self.ttk
+        win = self.toplevel("Login do proxy da rede", "560x330")
+        win.grab_set()
+        ttk.Label(win, text="O proxy da sua rede pediu login", font=self.f["h2"]).pack(anchor="w", padx=24, pady=(20, 4))
+        ttk.Label(win, style="Muted.TLabel", wraplength=510, justify="left",
+                  text="Informe o usuário e a senha que você usa para navegar na internet (ex.: DOMINIO\\usuario). Eles são usados só agora, para baixar os arquivos, "
+                       "ficam apenas na memória deste programa e não são gravados em nenhum arquivo nem no registro.").pack(anchor="w", padx=24)
+        user, pw = tk.StringVar(), tk.StringVar()
+        ttk.Label(win, text="Usuário").pack(anchor="w", padx=24, pady=(14, 2))
+        ent = ttk.Entry(win, textvariable=user)
+        ent.pack(fill="x", padx=24)
+        ttk.Label(win, text="Senha").pack(anchor="w", padx=24, pady=(10, 2))
+        ttk.Entry(win, textvariable=pw, show="•").pack(fill="x", padx=24)
+        result = {"ok": False}
+
+        def ok() -> None:
+            if user.get().strip() and pw.get():
+                ins.set_proxy_login(user.get(), pw.get())
+                result["ok"] = True
+                win.destroy()
+
+        bar = ttk.Frame(win)
+        bar.pack(side="bottom", fill="x", padx=24, pady=16)
+        ttk.Button(bar, text="Cancelar", style="Ghost.TButton", command=win.destroy).pack(side="right")
+        ttk.Button(bar, text="Usar e tentar de novo", style="Primary.TButton", command=ok).pack(side="right", padx=(0, 8))
+        ent.focus_set()
+        win.bind("<Return>", lambda _e: ok())
+        self.root.wait_window(win)
+        return result["ok"]
+
+    def offer_proxy_retry(self, retry) -> bool:
+        """Se o último erro foi o proxy pedindo login, abre a janela de usuário e senha e roda `retry`. Devolve True se vai tentar de novo."""
+        if not ins.had_407():
+            return False
+        if ins.has_proxy_login():
+            ins.forget_proxy_login()  # o login anterior foi recusado
+            self.messagebox.showwarning(APP_TITLE, "O proxy recusou o usuário ou a senha informados. Digite de novo.")
+        if self.ask_proxy_login():
+            retry()
+            return True
+        return False
 
     def show_manual_guide(self, kind: str, model: str = "") -> None:
         """Janela com o passo a passo manual (Ollama ou modelo), botão para abrir a página e para verificar de novo."""
@@ -1357,6 +1406,7 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
                     say_line(reason)
                 state["failed"] = failed
                 state["manual"] = manual
+                state["plans"] = plans
                 state["busy"] = False
                 self.root.after(0, finished)
 
@@ -1385,6 +1435,8 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
             scan()
             if failed:
                 self.messagebox.showwarning(APP_TITLE, "Alguns itens não foram instalados:\n\n" + "\n".join(failed) + f"\n\nO registro completo está em:\n{ins.LOG_PATH}", parent=win)
+                if self.offer_proxy_retry(lambda: install(state["plans"])):
+                    return
                 manual = state.get("manual") or []
                 if manual:  # Ollama primeiro: sem ele o modelo não baixa
                     kind, model = sorted(manual, key=lambda m: m[0] != "ollama")[0]

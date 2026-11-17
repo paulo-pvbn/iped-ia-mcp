@@ -149,3 +149,30 @@ def test_download_falls_back_to_windows_proxy_auth(tmp_path, monkeypatch):
     got = ops.download("https://ollama.com/download/OllamaSetup.exe", "OllamaSetup.exe", lambda f: None)
     assert got and got.stat().st_size == 2_000_000
     assert "GetSystemWebProxy" in seen[0][-1] and "DefaultCredentials" in seen[0][-1]
+
+
+def test_proxy_login_stays_in_memory_and_out_of_command_lines(monkeypatch):
+    from iped_mcp import installers as ins
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp:8080")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.corp:8080")
+    ins.set_proxy_login("DOM\\ana", "s3nh@:/")
+    try:
+        cmds = ins.windows_download_commands("https://ollama.com/download/OllamaSetup.exe", Path("C:/t/x.exe"))
+        assert "NetworkCredential" in cmds[0][-1] and "s3nh" not in " ".join(" ".join(c) for c in cmds)
+        env = ins.proxy_env({})
+        assert env["IPED_PROXY_USER"] == "DOM\\ana" and env["IPED_PROXY_PASS"] == "s3nh@:/"
+        assert env["HTTPS_PROXY"].startswith("http://DOM%5Cana:s3nh%40%3A%2F@proxy.corp:8080")
+    finally:
+        ins.forget_proxy_login()
+    assert not ins.has_proxy_login() and "IPED_PROXY_PASS" not in ins.proxy_env({})
+
+
+def test_407_flag_is_set_by_log_lines_and_reset_on_read():
+    from iped_mcp import installers as ins
+
+    ins.had_407()
+    ins.note_407("Falha: Tunnel connection failed: 407 Proxy Authentication Required")
+    assert ins.had_407() is True and ins.had_407() is False
+    ins.note_407("tudo certo")
+    assert ins.had_407() is False
