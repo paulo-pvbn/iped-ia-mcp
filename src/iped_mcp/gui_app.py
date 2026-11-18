@@ -570,6 +570,21 @@ class App:  # pragma: no cover - interface gráfica (não roda sem display)
         self.txt_contexto.bind("<FocusOut>", save_context)
         self.txt_contexto.bind("<KeyRelease>", save_context)
 
+        pre = ttk.Frame(self.form)
+        pre.grid(row=3, column=0, sticky="ew", pady=(16, 0))
+        pre.columnconfigure(1, weight=1)
+        ttk.Label(pre, text="Prefixo dos marcadores da IA", font=self.f["bold"]).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.var_prefixo = self.tk.StringVar(value=wl.bookmark_prefix(wl.load_config()))
+        ttk.Entry(pre, textvariable=self.var_prefixo, width=24).grid(row=0, column=1, sticky="w")
+        ttk.Label(pre, text="Todo marcador criado pela IA começa com isto, para você distinguir dos seus no IPED. A IA nunca mexe nos marcadores que já existem.", style="Muted.TLabel", justify="left").grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        def save_prefix(*_a) -> None:
+            cfg = wl.load_config()
+            cfg["prefixo_marcador"] = self.var_prefixo.get().strip()[:40]
+            wl.save_config(cfg)
+
+        self.var_prefixo.trace_add("write", save_prefix)
+
     def _model_note_text(self) -> str:
         return "Modelos de 4B a 8B respondem bem mais rápido em GPUs de 8 GB." if not self.models else f"{len(self.models)} modelo(s) disponível(is) no Ollama."
 

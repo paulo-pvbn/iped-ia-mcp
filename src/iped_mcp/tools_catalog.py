@@ -34,7 +34,7 @@ CATALOG: tuple[tuple[str, str, int, str, bool], ...] = (
     ("whatsapp_export_conversation", "WhatsApp", 505, "Exporta uma conversa em JSON", False),
     ("whatsapp_profile_photo", "WhatsApp", 294, "Baixa a foto de perfil", False),
     ("bookmarks_list", "Marcadores", 112, "Lista os marcadores", True),
-    ("bookmarks_create", "Marcadores", 172, "Cria um marcador novo (prefixo IA:)", True),
+    ("bookmarks_create", "Marcadores", 172, "Cria um marcador novo (com o prefixo da IA)", True),
     ("bookmarks_add", "Marcadores", 246, "Acrescenta itens a um marcador", True),
     ("bookmarks_docs", "Marcadores", 317, "Itens de um marcador", False),
     ("bookmarks_report", "Marcadores", 245, "Amostra de itens de um marcador", False),

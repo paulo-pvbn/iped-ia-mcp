@@ -435,3 +435,11 @@ def test_with_case_context_appends_and_limits():
     out = wl.with_case_context("base", "  Fulano usa o apelido Zé  ")
     assert out.startswith("base") and "Fulano usa o apelido Zé" in out and "not evidence" in out
     assert len(wl.with_case_context("b", "x" * 10000)) < 10000 - 4000 + 800
+
+
+def test_bookmark_prefix_default_and_override():
+    from iped_mcp import webui_launcher as wl
+
+    assert wl.bookmark_prefix({}) == "[IA]"
+    assert wl.bookmark_prefix({"prefixo_marcador": " [Minha IA] "}) == "[Minha IA]"
+    assert wl.bookmark_prefix({"prefixo_marcador": ""}) == ""

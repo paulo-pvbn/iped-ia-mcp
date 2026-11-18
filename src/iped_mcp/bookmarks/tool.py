@@ -38,6 +38,23 @@ def bookmark_names(source_id: str) -> list[str]:
     return get_router().list_bookmarks(source_id)
 
 
+def ai_name(name: str) -> str:
+    """Nome final de um marcador escrito pela IA: com o prefixo exigido pelo perito (IPED_MCP_BOOKMARK_PREFIX).
+
+    O prefixo destaca no IPED o que veio da IA e impede, na prática, de acrescentar itens a um marcador do próprio
+    perito: pedir "frete PY - OK" cai em "<prefixo> frete PY - OK", um marcador novo. Sem prefixo configurado, não muda nada.
+    """
+    name = name.strip()
+    prefix = os.environ.get("IPED_MCP_BOOKMARK_PREFIX", "").strip()
+    if not prefix or not name:
+        return name
+    if name.lower().startswith(prefix.lower()):
+        return name
+    if name.upper().startswith("IA:"):  # o modelo ainda pode usar o formato antigo
+        name = name[3:].strip()
+    return f"{prefix} {name}".strip()
+
+
 def bookmark_exists(name: str, source_id: str) -> bool:
     return name in get_router().list_bookmarks(source_id)
 
@@ -213,7 +230,7 @@ def bookmarks_create(name: str, source_id: str) -> dict[str, Any]:
         source_id: source no IPED (veja iped_list_sources); bookmarks são
             por servidor, então o source define em qual servidor criar.
     """
-    name = name.strip()
+    name = ai_name(name)
     if not name:
         raise ValueError("'name' não pode ser vazio.")
     if bookmark_exists(name, source_id):
@@ -222,7 +239,7 @@ def bookmarks_create(name: str, source_id: str) -> dict[str, Any]:
             "warning": f"Bookmark '{name}' já existe; nada foi criado.",
         }
     get_router().create_bookmark(name, source_id)
-    return {"created": name}
+    return {"created": name, "use_this_name_in_bookmarks_add": name}
 
 
 def bookmarks_add(
@@ -246,10 +263,11 @@ def bookmarks_add(
             f"{len(docs)} docs excede o teto de {_ADD_LIMIT_MAX} por chamada. "
             "Use bookmarks_add_from_file para lotes grandes."
         )
+    bookmark = ai_name(bookmark)
     client = get_router()
     existed = bookmark_exists(bookmark, source_id)
     client.add_to_bookmark(bookmark, docs, source_id)
-    result: dict[str, Any] = {"sent": len(docs)}
+    result: dict[str, Any] = {"sent": len(docs), "bookmark": bookmark}
     if not existed:
         result["warning"] = (
             f"Bookmark '{bookmark}' não existia antes; o IPED pode tê-lo criado "
@@ -508,7 +526,7 @@ def bookmarks_create_from_file(name: str, path: str, source: str) -> dict[str, A
         path: full path do txt (1 doc ID ou MD5 por linha).
         source: source de todos os IDs/MD5 do arquivo.
     """
-    name = name.strip()
+    name = ai_name(name)
     if not name:
         raise ValueError("'name' não pode ser vazio.")
     if not source:
@@ -570,6 +588,7 @@ def bookmarks_add_from_file(bookmark: str, path: str, source: str) -> dict[str, 
         raise ValueError(f"Nenhum ID ou MD5 válido no arquivo '{path}'.")
     resolved, not_found, failures = _resolve_md5s(md5s, source)
     all_ids = _dedupe(ids + resolved)
+    bookmark = ai_name(bookmark)
     client = get_router()
     existed = bookmark_exists(bookmark, source)
     client.add_to_bookmark(bookmark, [{"source": source, "id": i} for i in all_ids], source)

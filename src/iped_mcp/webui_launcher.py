@@ -621,6 +621,16 @@ def load_prompt() -> tuple[str, Path | None]:
     return "", None
 
 
+DEFAULT_BOOKMARK_PREFIX = "[IA]"
+
+
+def bookmark_prefix(cfg: dict) -> str:
+    """Prefixo dos marcadores criados pela IA: o do usuário (config) ou "[IA]". Vazio na config = sem prefixo."""
+    if "prefixo_marcador" in cfg:
+        return str(cfg.get("prefixo_marcador") or "").strip()[:40]
+    return DEFAULT_BOOKMARK_PREFIX
+
+
 def load_config() -> dict[str, str]:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -796,6 +806,10 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         env["FASTMCP_CHECK_FOR_UPDATES"] = "off"  # sem consulta à internet na subida (pode demorar em rede restrita)
         if token:
             env["IPED_MCP_TOKEN"] = token
+        prefix = bookmark_prefix(load_config())
+        if prefix:
+            env["IPED_MCP_BOOKMARK_PREFIX"] = prefix
+            say(f"Marcadores da IA levam o prefixo {prefix}")
         say("[2/3] Subindo o MCP…")
         mcp = subprocess.Popen(  # noqa: S603
             self_command("mcp"), cwd=Path.cwd(), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -891,6 +905,8 @@ def run(args) -> int:  # noqa: C901 - roteiro linear
         say(f"Open WebUI: {webui_url}")
         say("O Open WebUI abre sozinho já configurado (modelo 'Analista IPED'); se a configuração automática falhar, aparece um aviso.")
         say(f"Instruções do modelo: {prompt_file or '(nenhuma)'}")
+        ctx_chars = len(str(load_config().get("contexto_caso", "")).strip())
+        say(f"Contexto do caso: {ctx_chars} caractere(s) enviados ao modelo." if ctx_chars else "Contexto do caso: vazio (preencha na etapa IA para a IA buscar melhor).")
         say("Auditoria das chamadas: audit/iped-mcp-audit.jsonl (confira com --modo verificar)")
         say("Ctrl+C encerra tudo.")
         names = {id(launcher): "Web APIs do IPED", id(mcp): "servidor MCP"}
